@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#1b1440">
+  <meta name="description" content="最大4人で協力プレイできるサバイバー系アクションゲームのロビー画面">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Survivors Arena</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=15">
+  <script>
+    /* 読み込みに失敗したとき、真っ暗な画面のままにせず原因を表示する（スマホでも分かるように） */
+    (function () {
+      var errs = [];
+      function show() {
+        if (document.documentElement.classList.contains('ready') || !document.body) return;
+        var box = document.getElementById('load-error') || document.createElement('div');
+        box.id = 'load-error';
+        box.style.cssText = 'position:fixed;left:16px;right:16px;top:20%;z-index:99999;background:#fff8ea;color:#231a3a;border:4px solid #231a3a;border-radius:20px;padding:18px;font:700 14px/1.6 sans-serif;text-align:center';
+        box.innerHTML = '<b style="font-size:17px">うまく読み込めませんでした</b><br>' +
+          '<span style="font-size:12px">ファイルを全部アップロードしたか確認して、2〜3分待ってから再読み込みしてください。</span>' +
+          (errs.length ? '<div style="margin-top:8px;font-size:11px;text-align:left;background:#efe3cc;border-radius:10px;padding:8px;word-break:break-all">' + errs.slice(0, 5).join('<br>') + '</div>' : '') +
+          '<button onclick="location.reload()" style="margin-top:12px;padding:10px 22px;border-radius:14px;border:3px solid #231a3a;background:#ffd23d;font:900 15px sans-serif">再読み込み</button>';
+        document.body.appendChild(box);
+      }
+      window.addEventListener('error', function (e) {
+        var t = e.target, name = function (u) { return String(u || '').split('/').pop().split('?')[0]; };
+        if (t && t !== window && (t.src || t.href)) errs.push('見つからないファイル：' + name(t.src || t.href));
+        else errs.push('エラー：' + e.message + '（' + name(e.filename) + ' ' + (e.lineno || '') + '行目）');
+        setTimeout(show, 300);
+      }, true);
+      window.addEventListener('load', function () { setTimeout(show, 4000); });
+    })();
+  </script>
+</head>
+<body>
+  <div id="app">
+    <!-- 上部バー：プレイヤー情報とコイン -->
+    <header class="topbar">
+      <button class="profile" id="profile-btn" aria-label="プレイヤー情報（名前の変更・引き継ぎ）">
+        <span class="profile-face" id="profile-face"></span>
+        <span class="profile-lv" id="profile-lv">Lv 1</span>
+        <span class="profile-text">
+          <span class="profile-name"><span id="profile-name"></span><span class="pencil" aria-hidden="true">✎</span></span>
+          <span class="profile-stats"><b class="c-atk">ATK</b> <span id="top-atk"></span> <b class="c-hp">HP</b> <span id="top-hp"></span></span>
+        </span>
+      </button>
+      <div class="coin-pill">
+        <span class="coin-icon" id="coin-icon"></span>
+        <span id="coin-value">0</span>
+        <button class="coin-plus" id="coin-plus" aria-label="コインを追加（テスト用）">＋</button>
+      </div>
+    </header>
+
+    <!-- 3つの画面を横に並べて、下のバーで切り替える -->
+    <main class="screens">
+      <div class="screens-track" id="screens-track">
+        <section class="screen screen-shop" id="screen-shop" aria-label="ショップ"></section>
+        <section class="screen screen-gacha" id="screen-gacha" aria-label="ガチャ"></section>
+        <section class="screen screen-lobby" id="screen-lobby" aria-label="ロビー"></section>
+        <section class="screen screen-equip" id="screen-equip" aria-label="装備"></section>
+      </div>
+    </main>
+
+    <!-- 下部ナビゲーション -->
+    <nav class="bottombar" id="bottombar">
+      <button class="nav-btn" data-screen="0"><span class="nav-icon" data-icon="shop"></span><span class="nav-label">ショップ</span></button>
+      <button class="nav-btn" data-screen="1"><span class="nav-icon" data-icon="gacha"></span><span class="nav-label">ガチャ</span></button>
+      <button class="nav-btn active" data-screen="2"><span class="nav-icon" data-icon="lobby"></span><span class="nav-label">ロビー</span></button>
+      <button class="nav-btn" data-screen="3"><span class="nav-icon" data-icon="equip"></span><span class="nav-label">装備</span></button>
+    </nav>
+
+    <!-- ロビー（ルーム）画面：作成・参加後に表示 -->
+    <div class="room hidden" id="room"></div>
+
+    <div id="modal-root"></div>
+    <div id="toast-root"></div>
+  </div>
+
+  <noscript>このゲームを遊ぶには JavaScript を有効にしてください。</noscript>
+
+  <script src="config.js?v=15"></script>
+  <script src="gameConfig.js?v=15"></script>
+  <script src="state.js?v=15"></script>
+  <script src="art.js?v=15"></script>
+  <script src="gameArt.js?v=15"></script>
+  <script src="charArt.js?v=15"></script>
+  <script src="ui.js?v=15"></script>
+  <script src="sound.js?v=15"></script>
+  <script src="settings.js?v=15"></script>
+  <script src="cloud.js?v=15"></script>
+  <script src="net.js?v=15"></script>
+  <script src="lobby.js?v=15"></script>
+  <script src="gacha.js?v=15"></script>
+  <script src="equip.js?v=15"></script>
+  <script src="mission.js?v=15"></script>
+  <script src="shop.js?v=15"></script>
+  <script src="friends.js?v=15"></script>
+  <script src="sim.js?v=15"></script>
+  <script src="render.js?v=15"></script>
+  <script src="game.js?v=15"></script>
+  <script src="mgsim.js?v=15"></script>
+  <script src="minigame.js?v=15"></script>
+  <script src="main.js?v=15"></script>
+</body>
+</html>
