@@ -610,7 +610,7 @@
       for (const p of v.P) {
         if (p[0] === this.selfId || !p[4]) continue;
         const slot = this.slots[p[0]];
-        for (let k = 0; k < 2; k++) {
+        for (let k = 0; k < (T.defender.count || 1); k++) {
           if (!(p[5] & (1 << k))) continue;
           const [dx, dy] = MG.defPos(p[1], p[2], now, slot, k);
           if ((dx - this.me.x) ** 2 + (dy - this.me.y) ** 2 < R * R) { this.onHit(p[0]); if (!this.alive) return; }
@@ -914,7 +914,7 @@
       for (const p of list) {
         if (!p[4]) continue;
         const slot = this.slots[p[0]];
-        for (let k = 0; k < 2; k++) {
+        for (let k = 0; k < (T.defender.count || 1); k++) {
           if (!(p[5] & (1 << k))) continue;
           const [x, y] = MG.defPos(p[1], p[2], tnow, slot, k);
           if (!R.seen(x, y, 40)) continue;

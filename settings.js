@@ -8,6 +8,7 @@
   const KEY = 'survivors-arena/settings/v1';
   const DEFAULTS = {
     bgmOn: true, bgm: 60, se: 80,
+    mixAudio: true,     // v22：ほかのアプリ（YouTube など）の音を止めずに、一緒に鳴らす
     skillSize: 100, skillX: 0.84, skillY: 0.8,     // スキルボタン（位置は画面に対する割合、ボタンの中心）
     joyMode: 'float', joySize: 100, joyX: 0.24, joyY: 0.8,   // float: 触った場所に出る / fixed: 決まった場所
     mapSize: 100,
@@ -25,8 +26,13 @@
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(cur)); } catch (e) { /* noop */ }
     applyLite();
-    if (DS.sound) { DS.sound.setVolume(cur.bgm, cur.se); DS.sound.setBgmOn(cur.bgmOn); }
+    applySound();
     listeners.forEach((f) => f(cur));
+  }
+  function applySound() {
+    if (!DS.sound) return;
+    DS.sound.setVolume(cur.bgm, cur.se); DS.sound.setBgmOn(cur.bgmOn);
+    if (DS.sound.setMix) DS.sound.setMix(cur.mixAudio !== false);
   }
   function set(k, v) { cur[k] = v; save(); }
   function reset() { cur = Object.assign({}, DEFAULTS); save(); }
@@ -47,7 +53,11 @@
           <div class="seg set-seg bgm-seg"><button class="seg-btn" data-bgm="1">ON</button><button class="seg-btn" data-bgm="0">OFF</button></div></div>
         ${slider('bgm', 'BGMの音量', 0, 100, 5)}
         ${slider('se', '効果音', 0, 100, 5)}
-        <p class="note dark">音は最初に画面をタップしたときから鳴ります。鳴らないときは、端末の音量と、ほかのアプリで音楽を流していないかを確認してください。</p>
+        <div class="set-row bgm-row mix-row"><span>ほかのアプリの音</span>
+          <div class="seg set-seg bgm-seg mix-seg"><button class="seg-btn" data-mix="1">一緒に流す</button><button class="seg-btn" data-mix="0">ゲーム優先</button></div></div>
+        <p class="note dark"><b>一緒に流す</b>（おすすめ）：YouTube や音楽アプリを流したまま遊べます。ゲームの音は画面の上（再生中の表示）にも出ません。iPhone のマナーモード中はゲームの音が鳴りません。<br>
+          <b>ゲーム優先</b>：マナーモードでも鳴りますが、ほかのアプリの音は止まります。<br>
+          音は最初に画面をタップしたときから鳴ります。鳴らないときは、端末の音量とマナーモードを確認してください。</p>
         <h3 class="sub-head">軽量化モード</h3>
         <div class="set-row bgm-row"><span>軽量化モード</span>
           <div class="seg set-seg bgm-seg lite-seg"><button class="seg-btn" data-lite="1">ON</button><button class="seg-btn" data-lite="0">OFF</button></div></div>
@@ -90,6 +100,11 @@
     });
     $$('[data-joy]', el).forEach((b) => b.addEventListener('click', () => { set('joyMode', b.dataset.joy); sync(); }));
     $$('[data-bgm]', el).forEach((b) => b.addEventListener('click', () => { set('bgmOn', b.dataset.bgm === '1'); sync(); }));
+    $$('[data-mix]', el).forEach((b) => b.addEventListener('click', () => {
+      const on = b.dataset.mix === '1';
+      if (on !== (cur.mixAudio !== false)) { set('mixAudio', on); toast(on ? 'ほかのアプリの音と一緒に流します' : 'ゲームの音を優先します（ほかのアプリの音は止まります）', 'good', 2600); }
+      sync();
+    }));
     $$('[data-lite]', el).forEach((b) => b.addEventListener('click', () => {
       const on = b.dataset.lite === '1';
       if (on !== !!cur.lite) { set('lite', on); toast(on ? '軽量化モードをONにしました' : '軽量化モードをOFFにしました', 'good'); }
@@ -135,6 +150,7 @@
       Object.keys(units).forEach((kk) => { $('#' + kk, el).value = cur[kk]; $('#' + kk + '-v', el).textContent = cur[kk] + units[kk]; });
       $$('[data-joy]', el).forEach((b) => b.classList.toggle('active', b.dataset.joy === cur.joyMode));
       $$('[data-bgm]', el).forEach((b) => b.classList.toggle('active', (b.dataset.bgm === '1') === !!cur.bgmOn));
+      $$('[data-mix]', el).forEach((b) => b.classList.toggle('active', (b.dataset.mix === '1') === (cur.mixAudio !== false)));
       $$('[data-lite]', el).forEach((b) => b.classList.toggle('active', (b.dataset.lite === '1') === !!cur.lite));
       $('#bgm', el).closest('.set-row').classList.toggle('dim', !cur.bgmOn);
       $('#hurtFlash', el).checked = cur.hurtFlash;
@@ -143,7 +159,7 @@
     sync();
   }
 
-  if (DS.sound) { DS.sound.setVolume(cur.bgm, cur.se); DS.sound.setBgmOn(cur.bgmOn); }
+  applySound();
   applyLite();
   /** 軽量化モードか */
   const lite = () => !!cur.lite;

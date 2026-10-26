@@ -1781,6 +1781,8 @@ html:not(.ready) #app { visibility: hidden; }
 .bgm-row { grid-template-columns: 1fr auto; }
 .bgm-seg { margin: 0; padding: 3px; min-width: 140px; }
 .bgm-seg .seg-btn { padding: 6px 10px; font-size: 13px; }
+.mix-seg { min-width: 170px; }
+.mix-seg .seg-btn { padding: 6px 6px; font-size: 12px; white-space: nowrap; }
 .set-row.dim { opacity: .45; }
 /* ミシック：もっと鮮やかな虹色と金のふち */
 .r-mythic {

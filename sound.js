@@ -14,6 +14,14 @@
   let bgmOn = true;
   let wantBgm = null, curBgm = null, seqTimer = null, seq = null;
   const last = {};
+  // v22：iPhone の音の鳴らし方（Audio Session API）
+  //  'ambient' ：ほかのアプリ（YouTube・音楽）と一緒に鳴る。止めないし、画面の上（再生中の表示）にも出ない。マナーモード中は鳴らない
+  //  'playback'：マナーモードでも鳴るが、ほかのアプリの音は止まり、再生中の表示が出る
+  let sessionType = 'ambient';
+  function applySession() {
+    try { if (navigator.audioSession && navigator.audioSession.type !== sessionType) navigator.audioSession.type = sessionType; } catch (e) { /* noop */ }
+  }
+  applySession();   // 音を鳴らす前に決めておく
 
   function init() {
     if (ctx) return ctx;
@@ -30,8 +38,7 @@
   }
   let primed = false;
   function unlock() {
-    // iPhone：マナーモードでも BGM が鳴るように（対応しているブラウザだけ）
-    try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (e) { /* noop */ }
+    applySession();
     if (!init()) return;
     if (!primed) {
       // 無音を一瞬鳴らして、音を出せる状態にする（iPhone 向け）
@@ -181,5 +188,15 @@
     if (b && !b.disabled) play('click');
   });
 
-  DS.sound = { play, bgm, setVolume, setBgmOn, get ready() { return !!ctx && ctx.state === 'running'; }, get playing() { return curBgm; } };
+  /** ほかのアプリの音と一緒に鳴らすか（true：YouTube などを止めない） */
+  function setMix(on) {
+    const t = on ? 'ambient' : 'playback';
+    if (t === sessionType) return;
+    sessionType = t;
+    applySession();
+    // 鳴らし方は音を出し直したときに切りかわるので、いったん止めて再開する
+    if (ctx && ctx.state === 'running') ctx.suspend().then(() => ctx.resume()).catch(() => {});
+  }
+
+  DS.sound = { play, bgm, setVolume, setBgmOn, setMix, get ready() { return !!ctx && ctx.state === 'running'; }, get playing() { return curBgm; } };
 })();

@@ -50,6 +50,7 @@
       W: 2000, H: 2000, r0: 820, r1: 190, r2: 70,      // ゾンビの輪の半径（最初 → せまくなった後 → 最後）
       shrinkAt: 12, shrinkDur: 95, finalDur: 50,
       orbit: 82, spin: 3.3, dr: 19, spawnR: 430,
+      count: 1,          // v22：1人1枚（前は2枚）。4人の歯車は回る位置を 1/4 周ずつずらしてある（defPos）
     },
     effects: {
       shield: { cd: 60 }, miss: { chance: 0.1 }, guts: { cd: 60, dur: 3 }, revive: { inv: 3 },
@@ -122,8 +123,10 @@
     return lerp(D.r1, D.r2, Math.min(1, (el - D.shrinkAt - D.shrinkDur) / D.finalDur));
   }
   // ディフェンサーの位置（t = ホストの時計。全員が同じ角度で描ける）
+  // v22：P1〜P4 で 1/4 周（90°）ずつずらす。k は何枚目か（count 枚を等間隔に）
   function defPos(px, py, t, slot, k) {
-    const a = t * T.defender.spin + slot * 0.7 + k * Math.PI;
+    const D = T.defender, n = Math.max(1, D.count || 1);
+    const a = t * D.spin + (slot || 0) * Math.PI / 2 + (k || 0) * Math.PI * 2 / n;
     return [px + Math.cos(a) * T.defender.orbit, py + Math.sin(a) * T.defender.orbit];
   }
 
@@ -318,7 +321,7 @@
     }
 
     /* ----- ディフェンサーバトル ----- */
-    // ディフェンサーはこわれない（ずっと2枚）。ディフェンサーどうしはすり抜ける。
+    // ディフェンサーはこわれない（ずっと T.defender.count 枚）。ディフェンサーどうしはすり抜ける。
     // 相手に当たったかは、当たった本人の端末が判定する（minigame.js）
     stepDefender() {
       this.checkSurvival();
@@ -466,7 +469,7 @@
     snapshot() {
       const s = { t: r3(this.t), ph: this.ph, el: r1(this.el), dur: this.dur };
       s.P = this.list.map((p) => {
-        const extra = this.game === 'defender' ? 3   // ディフェンサー2枚（こわれない）
+        const extra = this.game === 'defender' ? (1 << Math.max(1, T.defender.count || 1)) - 1   // ディフェンサーの枚数ぶんのビット（こわれない）
           : this.game === 'peak' ? p.carry.length : this.game === 'draw' ? (p.done ? 1 : 0) : 0;
         return [p.id, Math.round(p.x), Math.round(p.y), p.f, p.alive && !p.gone ? 1 : 0, extra, p.gone ? 1 : 0];
       });
