@@ -638,15 +638,13 @@
       this.el.down.classList.add('hidden'); this.el.count.classList.add('hidden');
       const mine = (r.stats && r.stats[this.selfId]) || { kills: 0, coins: 0 };
       const before = S.missionStatus();
-      // パーティーでクリアしても、自分がまだそのステージまで進んでいなければ「クリア」にはならない
-      // （例：ホストだけステージ4まで進んでいて、自分は2まで → 4をクリアしても記録されない）
-      const open = S.isStageOpen(this.stageIndex);
-      const cleared = r.win && open;
+      // v21：パーティーでクリアしたら、まだそのステージまで進んでいない人も「クリア」になる
+      // （例：自分はステージ1まで、ホストのステージ3をクリア → 自分もステージ3までクリア）
+      const cleared = r.win;
       const got = S.recordMatch({ win: cleared, stageKey: this.stage.key, kills: mine.kills, coins: mine.coins }) || [];
       if (DS.sound) { DS.sound.bgm(null); DS.sound.play(r.win ? 'win' : 'lose'); }
-      const lockedHtml = r.win && !open
-        ? `<div class="unlock warn">あなたはまだ STAGE ${this.stage.no} まで進んでいないので、<b>このクリアは記録されません</b>（STAGE ${S.maxStage() + 1} までが遊べる範囲です）</div>` : '';
-      const unlockHtml = lockedHtml + got.map((g) => {
+      const unlockHtml = got.map((g) => {
+        if (g.startsWith('filled:')) return `<div class="unlock">パーティーでクリアしたので、あなたも <b>STAGE ${this.stage.no} までクリア</b>になった！</div>`;
         if (g === 'fullRarity') return '<div class="unlock">装備ガチャで<b>エピック</b>も出るようになった！</div>';
         if (g === 'charTicket') return '<div class="unlock">キャラガチャ解放！<b>キャラガチャ10連無料チケット</b>を手に入れた！</div>';
         if (g === 'present') return '<div class="unlock">ロビー左上の<b>プレゼントボックス</b>に運営からのプレゼントが届いた！</div>';

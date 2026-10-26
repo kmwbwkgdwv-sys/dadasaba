@@ -619,7 +619,7 @@
       ? (host ? 'あなたはホストです。ゲームを選んで、2人以上集まったらスタート！' : 'ゲームはホストが選びます。')
       : host ? 'あなたはホストです。ステージを選んで出撃しよう！'
         : S.isStageOpen(st.stage) ? 'ステージはホストが選びます。'
-          : `ステージはホストが選びます。※あなたはまだ STAGE ${stg.no} まで進んでいないので、クリアしても記録されません`;
+          : `ステージはホストが選びます。クリアすると、あなたも STAGE ${stg.no} までクリアになります！`;
     const party = st.members.length > 1, GCD = DS.gameConfig.DIFFICULTY;
     $('#room-diff').textContent = party ? `パーティー討伐：難易度×${GCD.party}（敵の体力${GCD.party}倍）` : `1人討伐：難易度×${GCD.solo}`;
     $('#room-diff').classList.toggle('solo', !party);

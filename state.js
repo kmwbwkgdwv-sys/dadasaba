@@ -988,9 +988,17 @@
     const presentsBefore = presentCount();
     m.kills += Math.max(0, kills | 0);
     let xp = 0, drops = null;
+    let filled = 0;
     if (win) {
       m.clears++; m.stages[stageKey] = (m.stages[stageKey] || 0) + 1;
       const st = C.STAGES.find((x) => x.key === stageKey);
+      // v21：パーティーで先のステージをクリアしたら、その前の（まだクリアしていない）ステージもクリアにする
+      //（例：自分はステージ1まで、ホストのステージ3をクリア → ステージ2と3もクリア）
+      const idx = C.STAGES.findIndex((x) => x.key === stageKey);
+      for (let i = 0; i < idx; i++) {
+        const k = C.STAGES[i].key;
+        if (!(m.stages[k] > 0)) { m.stages[k] = 1; filled++; }
+      }
       xp = st ? C.ACCOUNT.clearXp(st.no) : 0;
       save.account.xp += xp;
       if (st) drops = giveStageDrops(st.no, kills);
@@ -998,6 +1006,7 @@
     if (coins > 0) save.coins += coins;
     const got = grantProgressRewards(save);
     got.drops = drops;
+    if (filled) got.push('filled:' + filled);
     if (maxStage() > before) got.push('stage:' + maxStage());
     const lvAfter = accountInfo().lv;
     if (xp) got.push('xp:' + xp);
