@@ -124,21 +124,22 @@
   /* =========================================================
    *  報酬の表示
    * ========================================================= */
-  const TICKET_NAME = { item10: '装備ガチャ10連チケット', char10: 'キャラガチャ10連チケット' };
+  const TICKET_NAME = { item10: '装備ガチャ10連チケット', char10: 'キャラガチャ10連チケット', epic1: 'エピック確定チケット', s1: 'S装備確定チケット' };
+  const TICKET_SHORT = { item10: ['装備', '装備10連'], char10: ['キャラ', 'キャラ10連'], epic1: ['エピ確定', 'エピック確定'], s1: ['S確定', 'S装備確定'] };
   const TICKET_IC = '<svg viewBox="0 0 32 22" aria-hidden="true"><path d="M2 3 H30 V8 a3 3 0 0 0 0 6 V19 H2 V14 a3 3 0 0 0 0 -6 Z" fill="#ff7ad9" stroke="#231a3a" stroke-width="2" stroke-linejoin="round"/><path d="M11 4 V18" stroke="#231a3a" stroke-width="1.6" stroke-dasharray="2 2"/></svg>';
   /** 報酬の小さな表示（{ coins } / { bp } / { ticket } / { tool }） */
   function rewardChip(r, compact) {
     if (r.coins) return `<span class="rw">${A.coin()}<b>${compact ? U.fmtBig(r.coins) : fmt(r.coins)}</b></span>`;
     if (r.bp) return `<span class="rw">${A.blueprint('random')}<b>×${r.bp}</b></span>`;
     if (r.essence) return `<span class="rw">${A.essence()}<b>${compact ? '' : '×'}${fmt(r.essence)}</b></span>`;
-    if (r.ticket) return `<span class="rw tk">${TICKET_IC}<b>${r.ticket === 'char10' ? 'キャラ' : '装備'}${compact ? '' : '10連'}</b></span>`;
+    if (r.ticket) return `<span class="rw tk tk-${r.ticket}">${TICKET_IC}<b>${(TICKET_SHORT[r.ticket] || ['', ''])[compact ? 0 : 1]}${r.ticketN > 1 ? '×' + r.ticketN : ''}</b></span>`;
     if (r.tool) return `<span class="rw">${toolIcon(r.tool)}<b>${C.TOOLS[r.tool] && C.TOOLS[r.tool].s ? 'S選択BOX' : '選択BOX'}${r.toolN > 1 ? '×' + r.toolN : ''}</b></span>`;
     return '';
   }
   const toolIcon = (t) => A.epicBox('tool-art', !!(C.TOOLS[t] && C.TOOLS[t].s));
   /** 報酬がいくつかあるときは全部並べる */
   function rewardChips(r) {
-    return ['coins', 'bp', 'essence', 'ticket', 'tool'].filter((k) => r[k]).map((k) => rewardChip(k === 'tool' ? { tool: r.tool, toolN: r.toolN } : { [k]: r[k] })).join('');
+    return ['coins', 'bp', 'essence', 'ticket', 'tool'].filter((k) => r[k]).map((k) => rewardChip(k === 'tool' ? { tool: r.tool, toolN: r.toolN } : k === 'ticket' ? { ticket: r.ticket, ticketN: r.ticketN } : { [k]: r[k] })).join('');
   }
   /** もらったもの（grantReward の結果の配列）をまとめて見せる */
   function showGot(list, title) {
@@ -146,7 +147,7 @@
     list.forEach((g) => {
       coins += g.coins || 0; essence += g.essence || 0;
       if (g.bp) Object.keys(bp).forEach((k) => { bp[k] += g.bp[k] || 0; });
-      if (g.ticket) tickets.push(g.ticket);
+      if (g.ticket) for (let i = 0; i < (g.ticketN || 1); i++) tickets.push(g.ticket);
       if (g.tool) for (let i = 0; i < (g.toolN || 1); i++) tools.push(g.tool);
     });
     const bpN = Object.values(bp).reduce((a, n) => a + n, 0);
@@ -157,7 +158,7 @@
         ${coins ? `<div class="got">${A.coin()}<b>コイン +${fmt(coins)}</b></div>` : ''}
         ${essence ? `<div class="got">${A.essence()}<b>エッセンス +${fmt(essence)}</b></div>` : ''}
         ${bpN ? `<div class="got bp"><span class="got-bp">${C.SLOTS.filter((sl) => bp[sl.key]).map((sl) => `<span>${A.blueprint(sl.key)}<small>${sl.name}</small><b>×${bp[sl.key]}</b></span>`).join('')}</span><small>ランダム設計図 ${bpN}枚</small></div>` : ''}
-        ${tickets.map((t) => `<div class="got">${TICKET_IC}<b>${TICKET_NAME[t]}</b></div>`).join('')}
+        ${tickets.map((t) => `<div class="got tk-${t}">${TICKET_IC}<b>${TICKET_NAME[t]}</b>${t === 'epic1' || t === 's1' ? '<small>ガチャ画面の確定ガチャで使えます</small>' : ''}</div>`).join('')}
         ${tools.map((t) => `<div class="got">${toolIcon(t)}<b>${esc(C.TOOLS[t].name)}</b><small>ロビー左上の「どうぐ」から使えます</small></div>`).join('')}
       </div>`,
       buttons: [{ label: 'OK', cls: 'btn-yellow' }],
@@ -240,7 +241,7 @@
           </div>`).join('')}</div>`
         : `<div class="lm-locked">🔒 ログイン${day + 1}日目に解放されます<small>（あと${day + 1 - li.loginDays}日ログイン）</small></div>`}
         ${li.ready > 1 ? '<button class="btn btn-green lm-all" id="lm-all">まとめて受け取る</button>' : ''}
-        <p class="note dark">敵の数・ガチャ・合成などの「合計」は、ミッションが始まってからの数です。20個以上クリアで<b>エピックS装備選択BOX</b>（好きなエピックのS装備を1つ）がもらえます。</p>`;
+        <p class="note dark">敵の数・ガチャ・合成などの「合計」は、ミッションが始まってからの数です。3つクリアで<b>S装備確定チケット</b>、20個以上クリアで<b>エピックS装備選択BOX</b>（好きなエピックのS装備を1つ）がもらえます。</p>`;
       $$('.lm-tab', m.el).forEach((b) => b.addEventListener('click', () => { day = +b.dataset.d; draw(); }));
       $$('.lm-claim', m.el).forEach((b) => b.addEventListener('click', () => { const g = S.claimLimited(b.dataset.id); draw(); if (g.length) showGot(g); }));
       const all = $('#lm-all', m.el);
@@ -279,6 +280,8 @@
       <div class="tool-list">
         <div class="tool-row"><span class="tool-ic tk">${TICKET_IC}</span><div class="tool-txt"><b>${TICKET_NAME.item10}</b></div><span class="tool-n">×${d.tickets.item10 || 0}</span></div>
         <div class="tool-row"><span class="tool-ic tk">${TICKET_IC}</span><div class="tool-txt"><b>${TICKET_NAME.char10}</b></div><span class="tool-n">×${d.tickets.char10 || 0}</span></div>
+        <div class="tool-row"><span class="tool-ic tk tk-epic1">${TICKET_IC}</span><div class="tool-txt"><b>${TICKET_NAME.epic1}</b><small>ガチャ画面の「エピック確定ガチャ」で使います</small></div><span class="tool-n">×${d.tickets.epic1 || 0}</span></div>
+        <div class="tool-row"><span class="tool-ic tk tk-s1">${TICKET_IC}</span><div class="tool-txt"><b>${TICKET_NAME.s1}</b><small>ガチャ画面の「S装備確定ガチャ」で使います</small></div><span class="tool-n">×${d.tickets.s1 || 0}</span></div>
       </div>`;
   }
   function openTools() {

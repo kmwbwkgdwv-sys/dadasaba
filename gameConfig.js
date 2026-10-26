@@ -7,12 +7,20 @@
  *    実際の値 = 表の値 × そのステージの倍率（STAGE_TARGET から自動計算）
  * ========================================================= */
 window.DS = window.DS || {};
+// スキルの説明で使う（説明を出すときに読む）
+const GC_SP = () => DS.gameConfig.SKILL_PARAMS;
+const GC_EV = () => DS.gameConfig.EVOLVE;
+// 火炎瓶を一度に投げる数（★2・★4・赤★1 で1本ずつ増える）
+const molotovN = (s) => GC_SP().molotov.bottles + GC_SP().molotov.moreAt.filter((n) => s >= n).length;
 
 DS.gameConfig = {
   // ---- 試合の流れ ----
-  MATCH_SECONDS: 480,          // 8分
+  MATCH_SECONDS: 480,          // 8分：雑魚と中ボスが消えて、ボス戦へ（下の BOSS_INTRO）
+  // v15：8分になったら warp 秒後にボス戦の場所へワープ（横一列）→ wait 秒後にボスが出現
+  //      ワープした場所の少し前（healAhead）に、HP を healRatio 回復するアイテムを人数分置く（だれでも取れる）
+  BOSS_INTRO: { warp: 5, wait: 10, healAhead: 110, healRatio: 0.3, gap: 90, summonR: 150 },
   MIDBOSS_TIMES: [180, 360],   // 3分と6分に中ボス
-  ALTAR: { radius: 230, countdown: 5 },   // ボスの祭壇：全員が入ると5秒カウントダウン
+  ALTAR: { radius: 230, countdown: 5 },   // ボス戦の場所の大きさ
 
   // ---- マップ（とても広い） ----
   WORLD: { w: 9000, h: 9000 },
@@ -53,13 +61,17 @@ DS.gameConfig = {
   // エリアごとの調整：先のエリアは敵の種類が多くて手ごわいので、そのぶん体力・攻撃力を少し下げる
   // （自動プレイで、目安の装備のときにクリアできる確率がそろうように合わせた値）
   BIOME_SCALE: { meadow: 1, desert: 0.85, snow: 0.72, volcano: 0.7, ruins: 0.66 },
-  // 試合時間で雑魚の体力を増やす（0.05 で1分ごとに+5%）
-  ENEMY_HP_GROWTH_PER_MIN: 0.03,
+  // 試合時間による雑魚の体力の倍率（[分, 倍率] を直線でつなぐ）
+  // 終盤はスキルが育つので、雑魚は弱くして「ほとんどワンパン」の爽快感を出す
+  ENEMY_HP_CURVE: [[0, 1], [3, 0.95], [5, 0.78], [7, 0.6], [8, 0.58]],
 
   // ---- 敵の数：終盤になるほど大量に湧く ----
   // 画面にいる敵の目標数 = base + perMin × 分 + perMin2 × 分 × 分（× 人数補正）
-  MAX_ENEMIES: 280,
+  MAX_ENEMIES: 400,
   SPAWN: { base: 8, perMin: 9, perMin2: 2.6, interval: 0.3, packFullAt: 240 },
+  // ---- 終盤の大群：雑魚がワンパンで倒せるころ（from 分）から増え始め、full 分で画面を覆いつくす数（count）になる ----
+  // 目安の ATK・HP ならワンパンでどんどん倒せるが、足りないと倒しきれずに囲まれて負ける
+  FLOOD: { from: 5, full: 6.5, count: 380, interval: 0.1, speed: 1.15 },   // speed：大群の雑魚は少し速い
 
   // ---- 難易度：1人討伐は1倍、パーティー討伐は3倍 ----
   // 雑魚敵（狼・コウモリ以外）と中ボスの体力にかかります。
@@ -78,10 +90,18 @@ DS.gameConfig = {
   RUSH: { before: 30, duration: 18, every: 0.9, pack: [10, 16], speedMul: 1.25, dist: 720, max: 320 },
 
   // ---- ダンボール：壊すと 1/8 で回復アイテム（最大HPの30%回復） ----
-  BOXES: { initial: 10, perMinute: 3, dropRate: 1 / 8, healRatio: 0.3, r: 22, max: 60 },
+  // ダンボール：initial 最初の数 / perMinute 1分ごとに増える数 / dropRate 回復アイテムが出る確率
+  //   bomb：壊すと bomb.rate の確率で爆弾が出て、近くの敵に飛んでいって爆発（ATK×dmg、半径 r）
+  BOXES: { initial: 14, perMinute: 4, dropRate: 1 / 8, healRatio: 0.3, r: 22, max: 72,
+    bomb: { rate: 0.1, dmg: 6, r: 130, speed: 520, range: 700 } },
+  // 中ボスを倒すと出る宝箱：開けると全員のスキルかアビリティ（どれか1つ）の★が1つ上がる
+  // 中ボスの宝箱：拾うと時間が止まり、roulette 秒のルーレットで、持っているスキル・アビリティのどれかの★が1つ上がる
+  //（パーティーなら1つの宝箱で全員がそれぞれルーレット）
+  CHEST: { r: 30, roulette: 5 },
 
   // ---- 経験値とレベル ----
-  XP: { base: 4, growth: 21, cap: 500 },
+  // v14：スキルとアビリティが4つずつ。終盤の大群で経験値が多く入るので、レベル25より上で必要な経験値が増え続けるようにした（cap 500 → 1000）
+  XP: { base: 4, growth: 21, cap: 1000 },
 
   // ---- 敵キャラ（ステージ1の値） ----
   // atk: 近接は「触れている間 1秒あたり」のダメージ、遠距離は弾1発のダメージ
@@ -139,7 +159,10 @@ DS.gameConfig = {
   // attacks: aim（狙い撃ち）/ ring（全方向）/ spiral（うずまき）/ gears（回る歯車）/ slam（足元に衝撃）/ rain（降ってくる）/ summon（手下を呼ぶ）
   // atk・dps は「ステージ1の値」。touch は触れている間の1秒あたりのダメージ
   BOSS_BASE_HP: 300000,
-  BOSS_DMG: 0.7,               // ボスの攻撃（弾・衝撃・歯車・体当たり）のダメージ倍率
+  BOSS_DMG: 0.75,              // ボスの攻撃（弾・衝撃・歯車・体当たり）のダメージ倍率
+  // ボスの強化：hp 体力の倍率 / cd 攻撃の間隔の倍率（小さいほどよく撃つ）/ speed 動く速さの倍率
+  //   staticWalk：動かないボス（static）も、この速さでゆっくり近づいてくる
+  BOSS_BUFF: { hp: 2.5, cd: 0.8, speed: 1.3, staticWalk: 38 },
   BOSSES: {
     // ===== 草原 =====
     aurott:       { name: 'オーロット', title: '木の怪物', r: 74, art: { sp: 'aurott' }, move: { t: 'static' },
@@ -259,41 +282,74 @@ DS.gameConfig = {
   BOSS_ARENA: 620,             // 動くボスは祭壇からこの距離より遠くへは行かない
 
   // ---- スキル（武器を含めて3枠） ----
-  // 武器スキルは最初から★1。取得するたびに★が1つ上がる（最大★5）。
-  SLOTS: { skills: 3, abilities: 3 },
+  // 武器スキルは最初から★1。取得するたびに★が1つ上がる（★5 の次は「赤★1」＝進化。赤★1 が最大）
+  //   スキルが赤★1：いつも発動して大幅パワーアップ（EVOLVE の値）
+  //   アビリティが赤★1：もう1段階（+10%など）
+  SLOTS: { skills: 4, abilities: 4 },   // v14：スキル（武器を含む）とアビリティを4つずつ持てる
   MAX_STAR: 5,
+  EVO_STAR: 6,
   SKILLS: {
-    kunai:    { name: 'クナイ',       weapon: true, desc: (s) => `1秒ごとにクナイを${s}本投げる。敵を追いかけて必ず当たる（ATK×1.0）` },
-    shotgun:  { name: 'ショットガン', weapon: true, desc: (s) => `${(1.5 - 0.2 * (s - 1)).toFixed(1)}秒ごとに散弾を撃つ。全弾命中でATK×${(2 * Math.pow(1.1, s - 1)).toFixed(2)}` },
-    lightsaber: { name: 'ライトセイバー', weapon: true, desc: (s) => `${(1 - 0.1 * (s - 1)).toFixed(1)}秒ごとに近くの敵を自動で狙って斬る（90度）。範囲${Math.round((1 + 0.15 * (s - 1)) * 100)}%（ATK×${Math.pow(1.2, s - 1).toFixed(2)}）` },
-    revolver: { name: 'リボルバー',   weapon: true, desc: (s) => `0.8秒ごとに近くの敵1体を撃ち抜く（ATK×${Math.pow(1.2, s - 1).toFixed(2)}）` },
-    minigun:  { name: 'ミニガン',     weapon: true, desc: (s) => `10秒間、1秒に20発ずつ近くの敵を撃ち続け、${(3 - 0.5 * (s - 1)).toFixed(1)}秒リロードする（1発 ATK×0.5）` },
-    destroyerPower: { name: '破壊の力', weapon: true, desc: (s) => `5秒ごとに近くの敵へブラックホールを撃つ。${(3 + 0.5 * (s - 1)).toFixed(1)}秒間、敵を吸い寄せて毎秒ATK×1.5（範囲${2 + 0.5 * (s - 1)}人分）` },
-    defender: { name: 'ディフェンサー', desc: (s) => `自分の周りを歯車が${s + 1}つ回る。触れた敵にATK×1.0` },
-    drone:    { name: 'ドローン',     desc: (s) => `近くの敵を狙って毎秒${(2.5 + 1.5 * (s - 1)).toFixed(1)}発撃つ（命中率50%、1発ATK×0.2）` },
-    thunder:  { name: '雷発生機',     desc: (s) => `雷を${s}本落とし、5秒間電気が残る（ATK×1.0、電気は毎秒ATK×0.6）` },
-    soccer:   { name: 'サッカーボール', desc: (s) => `画面の端で跳ね返るボール（大きさ${s}人分、ATK×2.0）` },
-    molotov:  { name: '火炎瓶',       desc: (s) => `火炎瓶を2つ投げて炎を残す（範囲${s + 1}人分、毎秒ATK×${(0.6 + 0.2 * (s - 1)).toFixed(1)}）` },
-    gravity:  { name: '重力発生機',   desc: (s) => `周りの敵を${Math.round((0.5 + 0.1 * (s - 1)) * 100)}%遅くし、毎秒ATK×${(0.2 + 0.2 * (s - 1)).toFixed(1)}` },
+    kunai:    { name: 'クナイ',       weapon: true, desc: (s) => (s >= 6 ? `【進化】${GC_EV().kunai.cd}秒ごとにクナイを${GC_EV().kunai.count}本投げ続ける。敵を追いかけて必ず当たる（ATK×${GC_SP().kunai.dmg}）`
+      : `1秒ごとにクナイを${s}本投げる。敵を追いかけて必ず当たる（ATK×${GC_SP().kunai.dmg}）`) },
+    shotgun:  { name: 'ショットガン', weapon: true, desc: (s) => (s >= 6 ? `【進化】${GC_EV().shotgun.cd}秒ごとに大きく散弾を撃ち続ける（${GC_EV().shotgun.pellets}発。全弾命中でATK×${(GC_SP().shotgun.total * Math.pow(1.1, 5)).toFixed(2)}）`
+      : `${(1.5 - 0.2 * (s - 1)).toFixed(1)}秒ごとに散弾を撃つ。全弾命中でATK×${(GC_SP().shotgun.total * Math.pow(1.1, s - 1)).toFixed(2)}`) },
+    lightsaber: { name: 'ライトセイバー', weapon: true, desc: (s) => (s >= 6 ? `【進化】${GC_EV().lightsaber.cd}秒ごとに全方向を回転斬りし続ける。範囲${Math.round((1 + 0.15 * 5) * GC_EV().lightsaber.range * 100)}%（ATK×${(GC_SP().lightsaber.dmg * Math.pow(1.2, 5)).toFixed(2)}）`
+      : `${(1 - 0.1 * (s - 1)).toFixed(1)}秒ごとに近くの敵を自動で狙って斬る（90度）。範囲${Math.round((1 + 0.15 * (s - 1)) * 100)}%（ATK×${(GC_SP().lightsaber.dmg * Math.pow(1.2, s - 1)).toFixed(2)}）`) },
+    revolver: { name: 'リボルバー',   weapon: true, desc: (s) => (s >= 6 ? `【進化】${GC_EV().revolver.cd}秒ごとに近くの敵を撃ち抜き続ける（ATK×${(GC_SP().revolver.dmg * Math.pow(1.2, 5)).toFixed(2)}）`
+      : `0.8秒ごとに近くの敵1体を撃ち抜く（ATK×${(GC_SP().revolver.dmg * Math.pow(1.2, s - 1)).toFixed(2)}）`) },
+    minigun:  { name: 'ミニガン',     weapon: true, desc: (s) => (s >= 6 ? `【進化】リロードなしで、1秒に${GC_EV().minigun.rate}発ずつ撃ち続ける（1発 ATK×${GC_SP().minigun.dmg}）`
+      : `10秒間、1秒に20発ずつ近くの敵を撃ち続け、${(3 - 0.5 * (s - 1)).toFixed(1)}秒リロードする（1発 ATK×${GC_SP().minigun.dmg}）`) },
+    destroyerPower: { name: '破壊の力', weapon: true, desc: (s) => (s >= 6 ? `【進化】${GC_EV().destroyerPower.cd}秒ごとに大きなブラックホールを撃ち続ける。${GC_EV().destroyerPower.dur}秒間、毎秒ATK×${GC_SP().destroyerPower.dps}`
+      : `5秒ごとに近くの敵へブラックホールを撃つ。${(3 + 0.5 * (s - 1)).toFixed(1)}秒間、敵を吸い寄せて毎秒ATK×${GC_SP().destroyerPower.dps}（範囲${2 + 0.5 * (s - 1)}人分）`) },
+    defender: { name: 'ディフェンサー', desc: (s) => (s >= 6 ? `【進化】歯車が${GC_EV().defender.count}つ、速く回り続ける。触れた敵にATK×${GC_SP().defender.dmg}（当たる間隔が半分）`
+      : `自分の周りを歯車が${s + 1}つ回る。触れた敵にATK×${GC_SP().defender.dmg}`) },
+    drone:    { name: 'ドローン',     desc: (s) => (s >= 6 ? `【進化】毎秒${((3.5 + 1.5 * 5) * GC_EV().drone.rate).toFixed(1)}発を必ず当てる（1発ATK×${GC_SP().drone.dmg}）`
+      : `近くの敵を狙って毎秒${(3.5 + 1.5 * (s - 1)).toFixed(1)}発撃つ（命中率50%、1発ATK×${GC_SP().drone.dmg}）`) },
+    thunder:  { name: '雷発生機',     desc: (s) => (s >= 6 ? `【進化】${GC_EV().thunder.cd}秒ごとに雷を${GC_EV().thunder.count}本落とし続ける（ATK×${GC_SP().thunder.dmg}、電気は毎秒ATK×${GC_SP().thunder.fieldDps}）`
+      : `雷を${s}本落とし、5秒間電気が残る（ATK×${GC_SP().thunder.dmg}、電気は毎秒ATK×${GC_SP().thunder.fieldDps}）`) },
+    soccer:   { name: 'サッカーボール', desc: (s) => (s >= 6 ? `【進化】ボールが${GC_EV().soccer.balls}つになり、速く跳ね回る（ATK×${GC_SP().soccer.dmg}）`
+      : `画面の端で跳ね返るボール（★ごとに大きく速くなる、ATK×${GC_SP().soccer.dmg}）`) },
+    molotov:  { name: '火炎瓶',       desc: (s) => (s >= 6 ? `【進化】${GC_EV().molotov.cd}秒ごとに火炎瓶を${molotovN(s)}つ投げ続ける（範囲${s + 1}人分、毎秒ATK×${(GC_SP().molotov.dps + GC_SP().molotov.dpsStep * 5).toFixed(2)}）`
+      : `火炎瓶を${molotovN(s)}つ投げて炎を残す（範囲${s + 1}人分、毎秒ATK×${(GC_SP().molotov.dps + GC_SP().molotov.dpsStep * (s - 1)).toFixed(2)}）`) },
+    gravity:  { name: '重力発生機',   desc: (s) => (s >= 6 ? `【進化】範囲${Math.round(GC_EV().gravity.r * 100)}%の重力で敵を90%遅くし、毎秒ATK×${((GC_SP().gravity.dps + GC_SP().gravity.dpsStep * 5) * GC_EV().gravity.dps).toFixed(2)}`
+      : `周りの敵を${Math.round(Math.min(0.9, 0.5 + 0.1 * (s - 1)) * 100)}%遅くし、毎秒ATK×${(GC_SP().gravity.dps + GC_SP().gravity.dpsStep * (s - 1)).toFixed(2)}`) },
   },
+  // v13：すべてのスキルを少し強化（ダメージ +15%）
   SKILL_PARAMS: {
-    kunai:    { cd: 1.0, dmg: 1.0, speed: 760, range: 620 },
-    shotgun:  { cd: 1.5, cdStep: 0.2, pellets: 7, spread: 0.9, total: 2.0, mult: 1.1, speed: 950, range: 380 },
+    kunai:    { cd: 1.0, dmg: 1.15, speed: 760, range: 620 },
+    shotgun:  { cd: 1.5, cdStep: 0.2, pellets: 7, spread: 0.55, total: 2.3, mult: 1.1, speed: 950, range: 380, aim: 1.25 },   // v15：近くの敵に向けて狭く撃つ（aim：狙う距離の倍率）
     // ライトセイバー：向いている方向に arc（ラジアン）の扇形で斬る。★が上がるたびに範囲が rStep ずつ広がる
-    lightsaber: { cd: 1.0, cdStep: 0.1, r: 100, rStep: 0.15, arc: Math.PI / 2, dmg: 1.0, mult: 1.2 },
+    lightsaber: { cd: 1.0, cdStep: 0.1, r: 100, rStep: 0.15, arc: Math.PI / 2, dmg: 1.15, mult: 1.2 },
     // リボルバー：0.8秒ごとに1発（★を上げても間隔は変わらず、ダメージが上がる）
-    revolver: { cd: 0.8, cdStep: 0, dmg: 1.0, mult: 1.2, range: 520 },
+    revolver: { cd: 0.8, cdStep: 0, dmg: 1.15, mult: 1.2, range: 520 },
     // ミニガン：fire 秒撃ち続けて reload 秒リロード（★ごとに reloadStep 短く）。1秒に rate 発、1発 ATK×dmg
-    minigun:  { rate: 20, fire: 10, reload: 3, reloadStep: 0.5, dmg: 0.5, speed: 950, range: 560 },
+    minigun:  { rate: 20, fire: 10, reload: 3, reloadStep: 0.5, dmg: 0.58, speed: 950, range: 560 },
     // 破壊の力：cd 秒ごとにブラックホール。半径 r（★ごとに rStep）、dur 秒（★ごとに durStep）、毎秒 ATK×dps。pull の速さで吸い寄せる
-    destroyerPower: { cd: 5, r: 40, rStep: 10, dur: 3, durStep: 0.5, dps: 1.5, pullR: 2.6, pull: 90, range: 520 },
-    defender: { orbit: 105, angSpeed: 1.8, r: 16, dmg: 1.0, hitCd: 0.7 },
-    // ドローン：発射数と連射速度を半分（毎秒5発→2.5発、★ごと+3→+1.5）、命中率50%
-    drone:    { rate: 2.5, rateStep: 1.5, dmg: 0.2, range: 460, accuracy: 0.5 },
-    thunder:  { cd: 2.5, dmg: 1.0, fieldR: 60, fieldTime: 5, fieldDps: 0.6, range: 520 },
-    soccer:   { rPerStar: 20, speed: 200, speedStep: 70, dmg: 2.0, hitCd: 0.5 },
-    molotov:  { cd: 4, bottles: 2, r: 40, rStep: 20, time: 3, dps: 0.6, dpsStep: 0.2, throwDist: 230 },
-    gravity:  { r: 150, dps: 0.2, dpsStep: 0.2, slow: 0.5, slowStep: 0.1 },
+    destroyerPower: { cd: 5, r: 40, rStep: 10, dur: 3, durStep: 0.5, dps: 1.75, pullR: 2.6, pull: 90, range: 520 },
+    defender: { orbit: 105, angSpeed: 2.1, r: 16, dmg: 1.15, hitCd: 0.7 },   // v14：回る速さを少し上げた（1.8 → 2.1）
+    // ドローン：命中率50%
+    drone:    { rate: 3.5, rateStep: 1.5, dmg: 0.23, range: 460, accuracy: 0.5 },
+    thunder:  { cd: 2.5, dmg: 1.15, fieldR: 60, fieldTime: 5, fieldDps: 0.7, range: 520 },
+    // サッカーボール：半径 r（★ごとに rStep 大きく）。v13で前の3分の1くらいの大きさにして、そのぶんダメージを上げた
+    soccer:   { r: 16, rStep: 4.5, speed: 200, speedStep: 70, dmg: 3.0, hitCd: 0.5 },
+    // 火炎瓶：投げる数は bottles 本。★2・★4・赤★1 で1本ずつ増える（2 → 3 → 4 → 5本）
+    molotov:  { cd: 4, bottles: 2, moreAt: [2, 4, 6], r: 40, rStep: 20, time: 3, dps: 0.7, dpsStep: 0.23, throwDist: 230 },
+    gravity:  { r: 150, dps: 0.23, dpsStep: 0.23, slow: 0.5, slowStep: 0.1 },
+  },
+  // ---- 進化（赤★1）したスキル：いつも発動して大幅パワーアップ ----
+  EVOLVE: {
+    kunai:    { cd: 0.4, count: 8 },                       // 0.4秒ごとに8本
+    shotgun:  { cd: 0.35, pellets: 11, spread: 0.9 },      // 0.35秒ごとに広い散弾
+    lightsaber: { cd: 0.4, range: 1.25 },                  // 全方向の回転斬り（範囲さらに1.25倍）
+    revolver: { cd: 0.25 },                                // 0.25秒ごと
+    minigun:  { rate: 30 },                                // リロードなし・1秒に30発
+    destroyerPower: { cd: 2, dur: 6, scale: 1.3 },         // 2秒ごとに大きなブラックホール
+    defender: { count: 8, speed: 3.1, hitCd: 0.35 },       // 歯車8つ・速く回る
+    drone:    { rate: 1.5, accuracy: 1 },                  // 発射数1.5倍・必中
+    thunder:  { cd: 0.7, count: 6 },                       // 0.7秒ごとに6本
+    soccer:   { balls: 2, speed: 1.3 },                    // ボール2つ・速い
+    molotov:  { cd: 1.2 },                                 // 1.2秒ごと（数は赤★1で5本）
+    gravity:  { r: 1.6, dps: 2 },                          // 範囲1.6倍・ダメージ2倍
   },
 
   // ---- アビリティ（3枠） ----
@@ -304,6 +360,7 @@ DS.gameConfig = {
     vest:    { name: '防弾チョッキ',     desc: (s) => `受けるダメージ -${10 * s}%` },
     scroll:  { name: '巻物',             desc: (s) => `チーム全体の経験値 +${10 * s}%` },
     coin:    { name: 'コイン獲得',       desc: (s) => `試合終了後にコイン +${300 * s}` },
+    expand:  { name: '拡大モジュール',   desc: (s) => `攻撃の当たり判定が ${10 * s}% 大きくなる` },
   },
 
   // ---- ミッション ----

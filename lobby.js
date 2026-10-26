@@ -68,6 +68,7 @@
           <div class="game-logo">
             <span class="logo-main outline">${esc(C.GAME_TITLE).replace(' ', '<br>')}</span>
             <span class="logo-sub">${esc(C.GAME_SUBTITLE)}</span>
+            <button class="rank-btn" id="btn-ranking">${DS.record.TROPHY}<span>ランキング</span></button>
           </div>
           <div class="side-col right-col">
           <button class="side-btn" id="btn-settings" aria-label="設定">
@@ -159,7 +160,7 @@
     $('#stage-prev', el).addEventListener('click', () => setStage(stageIndex - 1));
     $('#stage-next', el).addEventListener('click', () => setStage(stageIndex + 1));
     $('#btn-stage-list', el).addEventListener('click', () => openStageList({ current: stageIndex, max: S.maxStage(), onPick: (i) => setStage(i) }));
-    $('#btn-present', el).addEventListener('click', openPresents);
+    $('#btn-present', el).addEventListener('click', () => openPresents());
     enableSwipe($('#stage-frame', el), (dir) => setStage(stageIndex + dir));
     $('#btn-create', el).addEventListener('click', () => openCreateDialog());
     // ミニゲームのタブ
@@ -175,6 +176,7 @@
     $('#btn-tools', el).addEventListener('click', () => DS.mission.openTools());
     $('#btn-settings', el).addEventListener('click', () => DS.settings.open());
     $('#btn-friends', el).addEventListener('click', () => DS.friends.open());
+    $('#btn-ranking', el).addEventListener('click', () => DS.record.openRanking());
     updateMissionBadge();
     $('#btn-join', el).addEventListener('click', doJoin);
     $('#join-id', el).addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6); });
@@ -284,7 +286,7 @@
     b.textContent = n; b.classList.toggle('hidden', !n);
     btn.classList.toggle('has', !!n);
   }
-  function openPresents() {
+  function openPresents(noCheck) {
     const list = S.presentList().slice().reverse();
     const m = modal({
       title: 'プレゼントボックス', cls: 'modal-wide',
@@ -292,20 +294,32 @@
         <div class="pr-item ${p.claimed ? 'claimed' : ''}">
           <span class="pr-ic">${GIFT}</span>
           <div class="pr-text"><b>${esc(p.title)}</b><small>${esc(p.text || '')}</small>
-            <span class="pr-reward">${A.coin()}コイン ×${fmt(p.coins || 0)}</span></div>
+            ${p.coins || !Object.keys(p.tickets || {}).length ? `<span class="pr-reward">${A.coin()}コイン ×${fmt(p.coins || 0)}</span>` : ''}
+            ${Object.keys(p.tickets || {}).map((k) => `<span class="pr-reward pr-tk">${DS.mission.rewardChip({ ticket: k, ticketN: p.tickets[k] })}</span>`).join('')}
+            ${(p.gift || p.allGift) && p.at ? `<span class="pr-date">${new Date(p.at).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })} に届きました${p.until && !p.claimed ? `（${new Date(p.until).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })} まで）` : ''}</span>` : ''}</div>
           ${p.claimed ? '<span class="pr-done">受け取り済み</span>' : `<button class="btn btn-small btn-pink" data-id="${esc(p.id)}">受け取る</button>`}
         </div>`).join('')}</div>` : '<p class="center">プレゼントはありません。</p>',
       buttons: [
         { label: 'とじる', cls: 'btn-gray' },
-        { label: 'まとめて受け取る', cls: 'btn-pink', disabled: !S.presentCount(), onClick: () => claim() },
+        { label: 'まとめて受け取る', cls: 'btn-pink', disabled: !S.presentCount(), onClick: () => showClaimed(claim()) },
       ],
     });
     const claim = (id) => {
-      const coins = S.claimPresent(id);
-      if (coins) { toast(`${fmt(coins)} コインを受け取りました！`, 'good'); if (DS.sound) DS.sound.play('gachaOpen'); }
+      const r = S.claimPresent(id);
+      // 管理ページから届いたものは、受け取ったことをサーバーにも書く
+      if (r.gifts.length && DS.gifts) DS.gifts.report(r.gifts);
+      if (r.allGifts.length && DS.gifts) DS.gifts.reportAll(r.allGifts);
       updatePresentBadge();
+      return r;
     };
-    $$('.pr-item .btn', m.el).forEach((b) => b.addEventListener('click', () => { claim(b.dataset.id); m.close(); openPresents(); }));
+    // チケットが入っていたら、もらったものの画面を（プレゼントボックスの上に）出す
+    const showClaimed = (r) => {
+      if (r.got.some((g) => g.ticket)) DS.mission.showGot(r.got, 'プレゼントを受け取りました');
+      else if (r.coins) { toast(`${fmt(r.coins)} コインを受け取りました！`, 'good'); if (DS.sound) DS.sound.play('gachaOpen'); }
+    };
+    $$('.pr-item .btn', m.el).forEach((b) => b.addEventListener('click', () => { const r = claim(b.dataset.id); m.close(); openPresents(true); showClaimed(r); }));
+    // 開いたときに、管理ページからのプレゼントが届いていないか見る（届いていたら開き直す）
+    if (DS.gifts && !noCheck) DS.gifts.check(true).then((n) => { if (n && m.el.isConnected) { m.close(); openPresents(true); } });
   }
 
   function updateMissionBadge() {
@@ -559,6 +573,7 @@
     $('#room-mg').classList.toggle('hidden', !mini);
     if (mini) renderRoomMg(st, host && waiting);
     if (!mini && lastRoomStage !== st.stage) {
+      $('#room-stage-art').innerHTML = A.stage(stg.biome);
       $('#room-rec').innerHTML = recHtml(st.stage);
       $('#room-bg').style.setProperty('--accent', stg.accent);
       lastRoomStage = st.stage;
@@ -569,7 +584,9 @@
     $('#room-stage').classList.toggle('can-pick', host && waiting);
     $('#room-note').textContent = mini
       ? (host ? 'あなたはホストです。ゲームを選んで、2人以上集まったらスタート！' : 'ゲームはホストが選びます。')
-      : host ? 'あなたはホストです。ステージを選んで出撃しよう！' : 'ステージはホストが選びます。';
+      : host ? 'あなたはホストです。ステージを選んで出撃しよう！'
+        : S.isStageOpen(st.stage) ? 'ステージはホストが選びます。'
+          : `ステージはホストが選びます。※あなたはまだ STAGE ${stg.no} まで進んでいないので、クリアしても記録されません`;
     const party = st.members.length > 1, GCD = DS.gameConfig.DIFFICULTY;
     $('#room-diff').textContent = party ? `パーティー討伐：難易度×${GCD.party}（敵の体力${GCD.party}倍）` : `1人討伐：難易度×${GCD.solo}`;
     $('#room-diff').classList.toggle('solo', !party);

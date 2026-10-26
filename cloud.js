@@ -113,21 +113,29 @@
    *  データベースを直接読み書きする（フレンド機能などで使う。Firebase を設定したときだけ）
    *  path は 'profiles/xxxx' のような形。PATCH を '' に送ると、いくつもの場所をまとめて書き換えられる
    * ========================================================= */
-  async function dbReq(method, path, body, retried) {
+  async function dbReq(method, path, body, retried, query) {
     if (!configured) throw err('test');
     const a = await session();
-    const url = `${CL.databaseURL.replace(/\/$/, '')}/${path || ''}.json?auth=${encodeURIComponent(a.idToken)}`;
+    // query：並べ替えて取り出す（例 { orderBy: '"pw"', limitToLast: 100 }）
+    const qs = query ? Object.keys(query).map((k) => `&${k}=${encodeURIComponent(query[k])}`).join('') : '';
+    const url = `${CL.databaseURL.replace(/\/$/, '')}/${path || ''}.json?auth=${encodeURIComponent(a.idToken)}${qs}`;
     const r = await fetch(url, { method, body: body === undefined ? undefined : JSON.stringify(body) }).catch(() => { throw err('network'); });
     if (r.status === 401) {
       const t = await r.text().catch(() => '');
-      if (!retried && /expired|token/i.test(t)) { acct.exp = 0; return dbReq(method, path, body, true); }
+      if (!retried && /expired|token/i.test(t)) { acct.exp = 0; return dbReq(method, path, body, true, query); }
       throw err('denied');
+    }
+    if (r.status === 400 && query) {
+      // ルールに ".indexOn" がない（ランキング用のルールに貼り替えていない）
+      const t = await r.text().catch(() => '');
+      throw err(/index/i.test(t) ? 'index' : 'server');
     }
     if (!r.ok) throw err('server');
     return r.json();
   }
   const api = {
     get: (p) => dbReq('GET', p),
+    query: (p, q) => dbReq('GET', p, undefined, false, q),
     put: (p, d) => dbReq('PUT', p, d),
     patch: (p, d) => dbReq('PATCH', p, d),
     del: (p) => dbReq('DELETE', p),
@@ -226,6 +234,7 @@
     auth: 'ログインの期限が切れました。もう一度お試しください。',
     denied: 'サーバーに断られました。Firebase のルールが新しいものになっているか確認してください。',
     test: 'この機能は Firebase を設定すると使えます（今はテストモードです）。',
+    index: 'ランキングを見るには、Firebase のルールを新しいものに貼り替えてください（README の手順4）。',
   };
   const message = (code) => MESSAGES[code] || MESSAGES.server;
 
@@ -426,6 +435,7 @@
       body: `
         <div class="name-edit"><span id="pf-face">${DS.art.charFace(S.data.icon || S.data.look)}</span>
           <label class="field"><span>名前（10文字まで）</span><input id="name-input" maxlength="10" value="${esc(S.data.name)}"></label></div>
+        <div class="pf-rec-btns"><button class="btn btn-small btn-blue" id="pf-record">戦績を見る</button><button class="btn btn-small btn-yellow" id="pf-rank">ランキング</button></div>
         <h3 class="sub-head">アイコン</h3>
         <div id="pf-icons">${iconPicker()}</div>
         <h3 class="sub-head">引き継ぎコード</h3>
@@ -459,6 +469,8 @@
       try { const r = await issue(); m.close(); showIssued(r.id, r.pin); }
       catch (er) { toast(message(er.code), 'error', 3600); e.target.disabled = false; e.target.textContent = '引き継ぎコードを発行する'; }
     });
+    q('#pf-record').addEventListener('click', () => DS.record.showMine());
+    q('#pf-rank').addEventListener('click', () => { m.close(); DS.record.openRanking(); });
     q('#pf-restore').addEventListener('click', () => { m.close(); openRestore(); });
     q('#pf-delete').addEventListener('click', () => { m.close(); openDelete(); });
     const bindIcons = () => q('#pf-icons').querySelectorAll('.icon-cell').forEach((b) => b.addEventListener('click', () => {

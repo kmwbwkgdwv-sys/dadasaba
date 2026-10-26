@@ -8,10 +8,11 @@
  *
  *  Realtime Database の形（README のルールで守る）
  *    friendIds/{フレンドID}      : { uid }                     … フレンドID → だれか
- *    profiles/{uid}              : { name, fid, icon, lv, seen } … 名前・最後に開いた時刻
+ *    profiles/{uid}              : { name, fid, icon, lv, seen, pw, rec } … 名前・最後に開いた時刻・総合力・戦績
  *    friendReq/{相手}/{自分}     : { name, fid, at }           … フレンド申請
  *    friends/{自分}/{相手}       : { at }                      … フレンド
  *    invites/{相手}/{自分}       : { name, lobby, pass, stage, at } … ロビーへの招待
+ *    tradeInv/{uid}・trades/{相手}/{自分} … 装備のトレード（trade.js）
  * ========================================================= */
 (function () {
   const C = DS.config, S = DS.state, A = DS.art, U = DS.ui;
@@ -55,11 +56,12 @@
     })().catch((e) => { fidReady = null; throw e; });
     return fidReady;
   }
-  /** 名前・アイコン・レベルと「今開いている」ことを書く */
+  /** 名前・アイコン・レベル・総合力・戦績と「今開いている」ことを書く（ランキングとフレンドの戦績に使う） */
   async function heartbeat() {
     if (state() !== 'ok') return;
     const fid = await ensureFid();
-    await api().put('profiles/' + me(), { name: S.data.name, fid, icon: S.data.icon || S.data.look || '', lv: S.accountInfo().lv, seen: TS });
+    const rec = DS.record ? DS.record.mine() : null;
+    await api().put('profiles/' + me(), { name: S.data.name, fid, icon: S.data.icon || S.data.look || '', lv: S.accountInfo().lv, seen: TS, pw: rec ? rec.pw : 0, rec });
   }
 
   /* ---------- 申請・承認 ---------- */
@@ -100,7 +102,7 @@
     const now = Date.now();
     const out = await Promise.all(uids.map(async (uid) => {
       const p = (await api().get('profiles/' + uid).catch(() => null)) || {};
-      return { uid, name: p.name || '（不明）', fid: p.fid || '', icon: p.icon || '', lv: p.lv || 1, seen: p.seen || 0, online: !!p.seen && now - p.seen < FC.onlineSec * 1000 };
+      return { uid, name: p.name || '（不明）', fid: p.fid || '', icon: p.icon || '', lv: p.lv || 1, seen: p.seen || 0, online: !!p.seen && now - p.seen < FC.onlineSec * 1000, pw: p.pw || 0, rec: p.rec || null };
     }));
     return out.sort((a, b) => (b.online - a.online) || (b.seen - a.seen));
   }
@@ -177,8 +179,8 @@
     }
     const m = modal({ title: 'フレンド', cls: 'modal-wide modal-fr', body: '<p class="center fr-loading">読み込み中…</p>', buttons: [{ label: 'とじる', cls: 'btn-gray' }] });
     const draw = async () => {
-      let fid = '', reqs = [], friends = [];
-      try { [fid, reqs, friends] = await Promise.all([ensureFid(), requests(), list()]); }
+      let fid = '', reqs = [], friends = [], trades = [];
+      try { [fid, reqs, friends, trades] = await Promise.all([ensureFid(), requests(), list(), DS.trade ? DS.trade.incoming().catch(() => []) : []]); }
       catch (e) { if (m.el.isConnected) m.body.innerHTML = `<p class="center warn-text">${esc(errMsg(e))}</p>`; return; }
       if (!m.el.isConnected) return;
       m.body.innerHTML = `
@@ -189,10 +191,13 @@
           <div class="fr-list">${reqs.map((r) => `<div class="fr-row req"><span class="fr-face">${A.charFace(null)}</span>
             <div class="fr-txt"><b>${esc(r.name || '')}</b><small>ID ${fmtFid(r.fid)}</small></div>
             <button class="btn btn-small btn-gray fr-no" data-uid="${r.uid}">断る</button><button class="btn btn-small btn-green fr-yes" data-uid="${r.uid}">承認</button></div>`).join('')}</div>` : ''}
+        ${DS.trade ? DS.trade.sectionHtml(trades, friends) : ''}
         <h3 class="sub-head">フレンド（${friends.length} / ${FC.max}）</h3>
-        ${friends.length ? `<div class="fr-list">${friends.map((f) => `<div class="fr-row">${faceHtml(f)}
-            <div class="fr-txt"><b>${esc(f.name)}</b><small>Lv ${f.lv}　${seenText(f)}</small></div>
-            <button class="mini-btn dark fr-del" data-uid="${f.uid}" data-name="${esc(f.name)}">削除</button></div>`).join('')}</div>`
+        ${friends.length ? `<p class="note dark center fr-tip">フレンドをタップすると戦績が見られます</p><div class="fr-list">${friends.map((f, i) => `<div class="fr-row fr-tap" data-i="${i}">${faceHtml(f)}
+            <div class="fr-txt"><b>${esc(f.name)}</b><small>Lv ${f.lv}　${seenText(f)}${f.pw ? `　総合力 ${U.fmtBig(f.pw)}` : ''}</small></div>
+            <span class="fr-rec">戦績</span>
+            <span class="fr-acts">${DS.trade ? `<button class="mini-btn dark fr-trade ${S.data.trades.out[f.uid] ? 'busy' : ''}" data-i="${i}">${S.data.trades.out[f.uid] ? '申込中' : 'トレード'}</button>` : ''}
+            <button class="mini-btn dark fr-del" data-uid="${f.uid}" data-name="${esc(f.name)}">削除</button></span></div>`).join('')}</div>`
           : '<p class="note dark center">まだフレンドがいません</p>'}`;
       $('#fr-copy', m.el).addEventListener('click', async () => {
         try { await navigator.clipboard.writeText(fmtFid(fid)); toast('フレンドIDをコピーしました', 'good'); } catch (e) { toast('コピーできませんでした', 'error'); }
@@ -207,6 +212,18 @@
       });
       $$('.fr-yes', m.el).forEach((b) => b.addEventListener('click', async () => { try { await accept(b.dataset.uid); toast('フレンドになりました！', 'good'); updateBadge(); draw(); } catch (e) { toast(errMsg(e), 'error'); } }));
       $$('.fr-no', m.el).forEach((b) => b.addEventListener('click', async () => { try { await decline(b.dataset.uid); updateBadge(); draw(); } catch (e) { toast(errMsg(e), 'error'); } }));
+      $$('.fr-tap', m.el).forEach((row) => row.addEventListener('click', (e) => {
+        if (e.target.closest('button')) return;
+        const f = friends[+row.dataset.i];
+        if (f) DS.record.show(f.rec, { name: f.name, title: `${f.name} さんの戦績`, seen: f.online ? 'オンライン' : f.seen ? agoText(f.seen) : '' });
+      }));
+      if (DS.trade) {
+        DS.trade.bindSection(m.el, trades, () => { if (m.el.isConnected) draw(); updateBadge(true); });
+        $$('.fr-trade', m.el).forEach((b) => b.addEventListener('click', () => {
+          const f = friends[+b.dataset.i];
+          if (f) DS.trade.compose(f, () => { if (m.el.isConnected) draw(); });
+        }));
+      }
       $$('.fr-del', m.el).forEach((b) => b.addEventListener('click', () => {
         modal({ title: 'フレンド削除', body: `<p class="center"><b>${b.dataset.name}</b> さんをフレンドから削除しますか？</p>`,
           buttons: [{ label: 'やめる', cls: 'btn-gray' }, { label: '削除する', cls: 'btn-red', onClick: async () => { try { await removeFriend(b.dataset.uid); draw(); } catch (e) { toast(errMsg(e), 'error'); } } }] });
@@ -238,11 +255,13 @@
 
   /* ---------- バッジ・定期チェック ---------- */
   let reqCount = 0;
-  async function updateBadge() {
+  /** フレンドのボタンの数字：フレンド申請＋届いたトレードの申し込み（onlyTrade：申請は読み直さない） */
+  async function updateBadge(onlyTrade) {
     const b = $('#friend-badge');
     if (state() !== 'ok') { if (b) b.classList.add('hidden'); return; }
-    try { reqCount = (await requests()).length; } catch (e) { return; }
-    if (b) { b.textContent = reqCount; b.classList.toggle('hidden', !reqCount); }
+    if (onlyTrade !== true) { try { reqCount = (await requests()).length; } catch (e) { return; } }
+    const n = reqCount + (DS.trade ? DS.trade.count() : 0);
+    if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
   }
   /** アカウント削除のとき：自分のフレンド情報を全部消す */
   async function cleanup() {
@@ -250,7 +269,7 @@
     const uid = me(), upd = {};
     const uids = await friendUids().catch(() => []);
     uids.forEach((f) => { upd[`friends/${f}/${uid}`] = null; });
-    upd[`friends/${uid}`] = null; upd[`friendReq/${uid}`] = null; upd[`invites/${uid}`] = null; upd[`profiles/${uid}`] = null;
+    upd[`friends/${uid}`] = null; upd[`friendReq/${uid}`] = null; upd[`invites/${uid}`] = null; upd[`profiles/${uid}`] = null; upd[`tradeInv/${uid}`] = null;
     if (S.data.friendId) upd[`friendIds/${S.data.friendId}`] = null;
     await api().patch('', upd);
   }
@@ -270,11 +289,16 @@
     setInterval(loop, FC.pollSec * 1000);
     setTimeout(loop, 1500);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { lastBeat = 0; loop(); } });
-    // 名前やアイコンを変えたら、すぐに知らせる
-    let lastSig = '';
+    // 名前・アイコン・総合力・装備・ステージなどが変わったら、少し待ってから知らせる
+    let lastSig = '', sigT = null;
     S.onChange(() => {
-      const sig = [S.data.name, S.data.icon, S.data.look, S.accountInfo().lv].join('|');
-      if (sig !== lastSig) { lastSig = sig; if (state() === 'ok') heartbeat().catch(() => {}); }
+      if (sigT || state() !== 'ok') return;
+      sigT = setTimeout(() => {
+        sigT = null;
+        const r = DS.record ? DS.record.mine() : {};
+        const sig = [S.data.name, S.data.icon, S.data.look, r.lv, r.pw, r.stage, JSON.stringify(r.gear), r.char, r.charLv, r.mg && r.mg.p, r.mg && r.mg.w].join('|');
+        if (sig !== lastSig) { lastSig = sig; heartbeat().catch(() => {}); }
+      }, 4000);
     });
   }
 

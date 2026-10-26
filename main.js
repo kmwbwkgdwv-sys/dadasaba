@@ -33,7 +33,7 @@
     if (lastChar !== face) { lastChar = face; $('#profile-face').innerHTML = A.charFace(face); }
     $('#profile-btn').classList.toggle('no-code', !DS.cloud.status().hasAccount);
     // チケットがあればガチャのボタンに印
-    const tk = (S.data.tickets.item10 || 0) + (S.charGachaUnlocked() ? S.data.tickets.char10 || 0 : 0);
+    const tk = (S.data.tickets.item10 || 0) + (S.charGachaUnlocked() ? S.data.tickets.char10 || 0 : 0) + (S.data.tickets.epic1 || 0) + (S.data.tickets.s1 || 0);
     let nb = $('.nav-btn[data-screen="1"] .badge');
     if (!nb) { nb = document.createElement('b'); nb.className = 'badge nav-badge'; $('.nav-btn[data-screen="1"]').appendChild(nb); }
     nb.textContent = tk; nb.classList.toggle('hidden', !tk);
@@ -106,6 +106,8 @@
     document.documentElement.classList.add('ready');
     DS.cloud.init(() => { onboarding(); noticeSRefund(); });
     DS.friends.start();
+    if (DS.trade) DS.trade.start();     // フレンドとの装備トレード
+    if (DS.gifts) DS.gifts.start();     // 管理ページから届くプレゼント
     // 7日間限定ミッション：ログインした日を記録（開いたまま日付が変わったときも）
     S.touchLogin();
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') S.touchLogin(); });

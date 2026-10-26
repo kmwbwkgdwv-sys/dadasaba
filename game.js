@@ -26,7 +26,7 @@
     s.E = E;
     return s;
   }
-  const PHASE_LABEL = { gather: 'ボスの祭壇へ', countdown: 'まもなくボス', boss: 'BOSS' };
+  const PHASE_LABEL = { warp: 'まもなくワープ', intro: 'まもなくボス', boss: 'BOSS' };
 
   const mmss = (t) => { t = Math.max(0, Math.floor(t)); return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); };
   const parseBuild = (str) => {
@@ -37,9 +37,13 @@
   function optInfo(o) {
     if (o.kind === 'heal') return { name: 'HPを回復', tag: '回復', desc: 'HPを30%回復する', icon: A.skillIcon('heal') };
     const d = o.kind === 'skill' ? GC.SKILLS[o.key] : GC.ABILITIES[o.key];
-    return { name: d.name, tag: o.kind === 'skill' ? (d.weapon ? '武器' : 'スキル') : 'アビリティ', desc: d.desc(o.star), icon: A.skillIcon(o.key) };
+    return { name: d.name, tag: o.kind === 'skill' ? (d.weapon ? '武器' : 'スキル') : 'アビリティ', desc: d.desc(o.star), icon: A.skillIcon(o.key), evo: o.star >= (GC.EVO_STAR || 6) };
   }
-  const starHtml = (n) => Array.from({ length: GC.MAX_STAR }, (_, i) => `<i class="${i < n ? 'on' : ''}">★</i>`).join('');
+  // ★5 の次は赤★1（進化）
+  const starHtml = (n) => (n >= (GC.EVO_STAR || 6)
+    ? `<b class="evo-star">赤<i>★</i>1</b><em class="evo-tag">進化</em>`
+    : Array.from({ length: GC.MAX_STAR }, (_, i) => `<i class="${i < n ? 'on' : ''}">★</i>`).join(''));
+  const starText = (n) => (n >= (GC.EVO_STAR || 6) ? '赤★1（進化）' : '★' + n);
 
   let current = null;
 
@@ -95,6 +99,7 @@
         <div class="bt-joy hidden"><div class="bt-joy-knob"></div></div>
         <button class="bt-skill hidden" aria-label="特殊スキル"><span class="bt-skill-ic"></span><svg class="bt-skill-ring" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46"/></svg><b class="bt-skill-cd"></b><small class="bt-skill-name"></small></button>
         <div class="bt-lvl hidden"></div>
+        <div class="bt-roul hidden"></div>
         <div class="bt-menu-panel hidden"></div>
         <div class="bt-result hidden"></div>
         <div class="bt-loading">バトルの準備中…</div>`;
@@ -105,7 +110,7 @@
         canvas: q('.bt-canvas'), map: q('.bt-map'), xp: q('.bt-xp-fill'), lv: q('.bt-lv'), time: q('.bt-time'),
         phase: q('.bt-phase'), kills: q('.bt-kills'), build: q('.bt-build'), boss: q('.bt-boss'), bossName: q('.bt-boss-name'),
         bossFill: q('.bt-boss-fill'), bossHp: q('.bt-boss-hp'), banner: q('.bt-banner'), count: q('.bt-count'), down: q('.bt-down'),
-        joy: q('.bt-joy'), knob: q('.bt-joy-knob'), lvl: q('.bt-lvl'), menu: q('.bt-menu-panel'), result: q('.bt-result'),
+        joy: q('.bt-joy'), knob: q('.bt-joy-knob'), lvl: q('.bt-lvl'), roul: q('.bt-roul'), menu: q('.bt-menu-panel'), result: q('.bt-result'),
         loading: q('.bt-loading'), hurt: q('.bt-hurt'),
         skill: q('.bt-skill'), skillCd: q('.bt-skill-cd'), skillRing: q('.bt-skill-ring circle'),
       };
@@ -279,7 +284,7 @@
         let n = 0;
         while (this.acc >= STEP && n < 5) { sim.step(STEP); this.acc -= STEP; n++; }
         if (n >= 5) this.acc = 0;
-      }
+      } else if (sim.roulette && !this.menuPaused && !sim.ended) sim.stepRoulette(Math.min(dt, 0.1));   // ルーレットの時間だけ進める
       this.hostEvents();
       const snap = sim.snapshot();
       if (this.session && ts - this.lastSnap >= SNAP_MS) { this.lastSnap = ts; this.session.sendGame({ k: 's', s: packSnap(snap) }); }
@@ -290,7 +295,7 @@
       if (!last) return null;
       const s = last.s;
       const selfP = s.P.find((p) => p[0] === this.selfId);
-      const frozen = !!s.lu || s.ph === 'win' || s.ph === 'lose' || (selfP && selfP[6]);
+      const frozen = !!s.lu || !!s.rl || s.ph === 'win' || s.ph === 'lose' || (selfP && selfP[6]);
       if (!frozen) this.moveSelf(dt);
       if (ts - this.lastInput >= INPUT_MS) {
         this.lastInput = ts;
@@ -318,7 +323,7 @@
       };
       return Object.assign({}, s1.s, {
         P: lerp(s0.s.P, s1.s.P, 0, 2, 3), E: lerp(s0.s.E, s1.s.E, 0, 2, 3), K: lerp(s0.s.K, s1.s.K, 0, 2, 3),
-        Q: lerp(s0.s.Q, s1.s.Q, 0, 2, 3), O: lerp(s0.s.O, s1.s.O, 5, 1, 2),
+        Q: lerp(s0.s.Q, s1.s.Q, 0, 2, 3), O: lerp(s0.s.O, s1.s.O, 5, 1, 2), BM: lerp(s0.s.BM || [], s1.s.BM || [], 0, 1, 2),
       });
     }
 
@@ -361,7 +366,7 @@
       }
     }
     onEvent(e) {
-      const snd = { midboss: 'boss', rush: 'rush', gather: 'alarm', boss: 'boss', down: 'down', revive: 'revive', skill: 'skill', suitRevive: 'revive' }[e.type];
+      const snd = { midboss: 'boss', rush: 'rush', bossWarp: 'alarm', boss: 'boss', down: 'down', revive: 'revive', skill: 'skill', suitRevive: 'revive' }[e.type];
       if (snd && DS.sound) DS.sound.play(snd);
       if (e.type === 'boss' && DS.sound) DS.sound.bgm('boss');
       switch (e.type) {
@@ -378,9 +383,29 @@
           if (d && d.skill && !(e.char === 'akagi' && e.id === this.selfId)) this.banner(`${e.id === this.selfId ? '' : e.name + '：'}${d.skill.name}！`, 1500, 'skill');
           break;
         }
-        case 'midbossDown': this.banner('中ボスを倒した！', 2000, 'good'); break;
-        case 'gather': this.banner('8分経過！\nボスの祭壇に全員で集合しよう', 3600, 'warn'); break;
-        case 'boss': this.banner(`ボス「${e.name}」出現！`, 2600, 'warn'); break;
+        case 'midbossDown': this.banner(e.chest ? '中ボスを倒した！\n宝箱を開けると★が上がる！' : '中ボスを倒した！', 2600, 'good'); break;
+        case 'roulette': this.showRoulette(e); break;
+        case 'chest': {
+          const u = e.ups && e.ups[this.selfId];
+          let what = 'HPが回復した';
+          if (u && u.kind !== 'heal') {
+            const d = u.kind === 'skill' ? GC.SKILLS[u.key] : GC.ABILITIES[u.key];
+            what = `${d ? d.name : ''} ${starText(u.star)}`;
+          }
+          if (e.roulette) { this.endRoulette(); this.banner(`${what}！`, 1500, 'good'); }
+          else this.banner(`${e.id === this.selfId ? '' : e.name + ' が'}宝箱を開けた！\n${what}`, 2600, 'good');
+          break;
+        }
+        case 'bossWarp': this.banner(`8分経過！\n${e.sec || 5}秒後にボス戦の場所へワープ！`, 3200, 'warn low'); break;
+        case 'boss': this.banner(`ボス戦！\nボス「${e.name}」出現！`, 3000, 'warn'); break;
+        case 'warp': {
+          // ボス戦の場所へワープ（自分の位置を合わせる）
+          const pos = e.pos && e.pos[this.selfId];
+          if (pos) { this.me.x = pos[0]; this.me.y = pos[1]; this.snaps = this.snaps.slice(-1); }
+          this.banner(`ボス出現まで${e.wait || 10}秒！\n前の回復アイテムを取っておこう`, 3000, 'good low');
+          if (DS.sound) DS.sound.play('heal');
+          break;
+        }
         case 'down': this.banner(`${e.name} がダウン！`, 2000, 'warn'); break;
         case 'revive': this.banner(`${e.name} が復活！`, 2000, 'good'); break;
         case 'suitRevive': this.banner(`${e.name}：不死の加護で復活！`, 2200, 'good'); break;
@@ -435,15 +460,18 @@
         el.bossFill.style.width = Math.max(0, v.boss[2] / v.boss[3] * 100) + '%';
         el.bossHp.textContent = `${fmtBig(Math.max(0, v.boss[2]))} / ${fmtBig(v.boss[3])}`;
       } else el.boss.classList.add('hidden');
-      // 祭壇のカウントダウン
-      if (v.altar && !this.ended) {
+      // ワープまで・ボス出現までのカウントダウン
+      const cnt = this.ended ? null : v.wp != null ? [v.wp, 'ボス戦の場所へワープ'] : v.altar ? [v.altar[3], 'ボス出現まで'] : null;
+      if (cnt) {
         el.count.classList.remove('hidden');
-        if (v.altar[3] >= 0) { const sec = Math.ceil(v.altar[3]); if (sec !== this._lastCount) { this._lastCount = sec; if (DS.sound) DS.sound.play('beep'); } } else this._lastCount = null;
-        el.count.innerHTML = v.altar[3] >= 0
-          ? `<b>${Math.ceil(v.altar[3])}</b><small>ボス出現まで</small>`
-          : `<small>ボスの祭壇に集合　${v.altar[4]} / ${v.altar[5]}人</small>`;
-        el.count.classList.toggle('big', v.altar[3] >= 0);
-      } else el.count.classList.add('hidden');
+        const sec = Math.max(1, Math.ceil(cnt[0]));
+        if (sec !== this._lastCount) { this._lastCount = sec; if (DS.sound && sec <= 5) DS.sound.play('beep'); }
+        el.count.innerHTML = `<b>${sec}</b><small>${cnt[1]}</small>`;
+        el.count.classList.add('big');
+      } else { el.count.classList.add('hidden'); this._lastCount = null; }
+      // 宝箱のルーレット：カチカチ音／（結果が届かなかったときの）片づけ
+      if (this.rlPlan && !this.rlDone) this.rouletteTick();
+      if (!v.rl && !this.el.roul.classList.contains('hidden') && this.rlShownAt && performance.now() - this.rlShownAt > 2500) this.endRoulette();
       // レベルアップ待ち
       if (!v.lu && !this.el.lvl.classList.contains('hidden') && this.picked) this.el.lvl.classList.add('hidden');
       if (v.lu && this.picked && !this.el.lvl.classList.contains('hidden')) {
@@ -455,7 +483,7 @@
       const b = parseBuild(str);
       const slot = (list, n) => Array.from({ length: n }, (_, i) => {
         const x = list[i];
-        return x ? `<span class="bt-ic">${A.skillIcon(x.key)}<i>${'★'.repeat(x.star)}</i></span>` : '<span class="bt-ic empty"></span>';
+        return x ? `<span class="bt-ic ${x.star >= (GC.EVO_STAR || 6) ? 'evo' : ''}">${A.skillIcon(x.key)}<i>${x.star >= (GC.EVO_STAR || 6) ? '<b>★</b>' : '★'.repeat(x.star)}</i></span>` : '<span class="bt-ic empty"></span>';
       }).join('');
       this.el.build.innerHTML = `<div>${slot(b.skills, GC.SLOTS.skills)}</div><div>${slot(b.abilities, GC.SLOTS.abilities)}</div>`;
     }
@@ -464,7 +492,7 @@
       b.textContent = text;
       b.className = 'bt-banner show ' + cls;
       clearTimeout(this._bt);
-      this._bt = setTimeout(() => { b.className = 'bt-banner'; }, ms);
+      this._bt = setTimeout(() => { b.className = 'bt-banner ' + (cls.includes('low') ? 'low' : ''); }, ms);
     }
 
     /* ---------- レベルアップ ---------- */
@@ -478,7 +506,7 @@
         <div class="lv-sub">スキルかアビリティを1つ選ぼう（選び終わるまで時間は止まります）</div>
         <div class="lv-cards">${opts.map((o, i) => {
           const f = optInfo(o);
-          return `<button class="lv-card ${o.kind}" data-i="${i}">
+          return `<button class="lv-card ${o.kind} ${f.evo ? 'evo' : ''}" data-i="${i}">
             <span class="lv-icon">${f.icon}</span>
             <span class="lv-body">
               <span class="lv-head"><b>${esc(f.name)}</b><em>${f.tag}</em>${o.star === 1 && o.kind !== 'heal' ? '<strong>NEW</strong>' : ''}</span>
@@ -494,6 +522,80 @@
       if (this.isHost) this.sim.choose(this.selfId, this.lvSeq, i);
       else this.session.sendGame({ k: 'pick', seq: this.lvSeq, i });
       this.el.lvl.innerHTML = '<div class="lv-title outline">LEVEL UP!</div><div class="lv-wait">仲間の選択を待っています…</div>';
+    }
+
+    /* ---------- 宝箱のルーレット ---------- */
+    // 時間が止まっている間に、自分のスキル・アビリティが並んだリールが回って、★が上がるものが決まる
+    // 結果はホストが先に決めている（e.plan）。止まる場所をそこに合わせて回す
+    showRoulette(e) {
+      const el = this.el.roul;
+      clearTimeout(this.rlTimer);
+      this.rlShownAt = performance.now(); this.rlDone = false; this.rlPlan = null; this.rlCell = -1;
+      el.classList.remove('hidden', 'out');
+      const pl = e.plan && e.plan[this.selfId];
+      const who = e.id === this.selfId ? 'あなた' : e.name;
+      const head = `<div class="rl-title outline">宝箱ルーレット！</div>
+        <div class="rl-sub"><b>${esc(who)}</b> が宝箱を開けた！<br>${this.o.members.length > 1 ? '全員が' : ''}スキルかアビリティの★が1つ上がる</div>`;
+      if (DS.sound) DS.sound.play('gachaOpen');
+      if (!pl || !pl.cands) {
+        el.innerHTML = `${head}<div class="rl-result show"><span class="rl-big">${A.skillIcon('heal')}</span><b>全部MAX！</b><span>HP 30%回復</span></div>`;
+        this.rlDone = true;
+        return;
+      }
+      const cands = pl.cands.map((c) => ({ kind: c[0] === 's' ? 'skill' : 'ability', key: c[1], star: c[2] }));
+      const n = cands.length, CW = 78;
+      const loops = Math.max(6, Math.ceil(40 / n));
+      const items = [];
+      for (let i = 0; i < loops; i++) cands.forEach((c) => items.push(c));
+      const finalIdx = (loops - 2) * n + pl.pick;   // 最後の1周の手前で止まる（右にも並びが見える）
+      el.innerHTML = `${head}
+        <div class="rl-win"><div class="rl-strip">${items.map((c, i) => `<span class="rl-cell ${c.kind}" data-i="${i}">${A.skillIcon(c.key)}<i>${c.star >= (GC.EVO_STAR || 6) ? '' : '★' + c.star}</i></span>`).join('')}</div><i class="rl-mark"></i></div>
+        <div class="rl-result"></div>`;
+      const strip = el.querySelector('.rl-strip'), win = el.querySelector('.rl-win');
+      const W = win.clientWidth || 320;
+      const spin = Math.max(2, (e.dur || 5) - 1.1);        // 止まってから約1秒は結果を見せる
+      this.rlPlan = { cands, pick: pl.pick, strip, finalIdx, CW, W, x: -(finalIdx * CW + CW / 2 - W / 2) };
+      strip.style.transition = 'none';
+      strip.style.transform = `translateX(${W / 2 - CW / 2}px)`;
+      void strip.offsetWidth;
+      strip.style.transition = `transform ${spin}s cubic-bezier(.1, .62, .1, 1)`;
+      strip.style.transform = `translateX(${this.rlPlan.x}px)`;
+      this.rlTimer = setTimeout(() => this.landRoulette(), spin * 1000 + 30);
+    }
+    /** リールが1マス進むごとにカチッと鳴らす */
+    rouletteTick() {
+      const R = this.rlPlan;
+      if (!R || !R.strip.isConnected) return;
+      const m = getComputedStyle(R.strip).transform;
+      const x = m && m !== 'none' ? parseFloat(m.split(',')[4]) : 0;
+      const cell = Math.floor((R.W / 2 - x) / R.CW);
+      if (cell !== this.rlCell) { this.rlCell = cell; if (DS.sound) DS.sound.play('tick'); }
+    }
+    landRoulette() {
+      const R = this.rlPlan;
+      if (!R || this.rlDone) return;
+      this.rlDone = true;
+      R.strip.style.transition = 'none';
+      R.strip.style.transform = `translateX(${R.x}px)`;
+      const c = R.cands[R.pick], next = Math.min(GC.EVO_STAR || 6, c.star + 1);
+      const cell = R.strip.querySelector(`.rl-cell[data-i="${R.finalIdx}"]`);
+      if (cell) cell.classList.add('hit');
+      const f = optInfo(Object.assign({}, c, { star: next }));
+      const r = this.el.roul.querySelector('.rl-result');
+      if (r) {
+        r.innerHTML = `<b>${esc(f.name)}</b><span class="rl-stars">${starHtml(c.star)}<em>→</em>${starHtml(next)}</span>`;
+        r.classList.add('show');
+      }
+      if (DS.sound) DS.sound.play('levelup');
+    }
+    /** ルーレットを閉じる（ホストから結果が届いたとき） */
+    endRoulette() {
+      clearTimeout(this.rlTimer);
+      if (this.rlPlan && !this.rlDone) this.landRoulette();
+      this.rlPlan = null; this.rlShownAt = 0;
+      const el = this.el.roul;
+      el.classList.add('out');
+      setTimeout(() => { if (el.classList.contains('out')) el.classList.add('hidden'); el.classList.remove('out'); }, 220);
     }
 
     /* ---------- メニュー ---------- */
@@ -528,9 +630,15 @@
       this.el.down.classList.add('hidden'); this.el.count.classList.add('hidden');
       const mine = (r.stats && r.stats[this.selfId]) || { kills: 0, coins: 0 };
       const before = S.missionStatus();
-      const got = S.recordMatch({ win: r.win, stageKey: this.stage.key, kills: mine.kills, coins: mine.coins }) || [];
+      // パーティーでクリアしても、自分がまだそのステージまで進んでいなければ「クリア」にはならない
+      // （例：ホストだけステージ4まで進んでいて、自分は2まで → 4をクリアしても記録されない）
+      const open = S.isStageOpen(this.stageIndex);
+      const cleared = r.win && open;
+      const got = S.recordMatch({ win: cleared, stageKey: this.stage.key, kills: mine.kills, coins: mine.coins }) || [];
       if (DS.sound) { DS.sound.bgm(null); DS.sound.play(r.win ? 'win' : 'lose'); }
-      const unlockHtml = got.map((g) => {
+      const lockedHtml = r.win && !open
+        ? `<div class="unlock warn">あなたはまだ STAGE ${this.stage.no} まで進んでいないので、<b>このクリアは記録されません</b>（STAGE ${S.maxStage() + 1} までが遊べる範囲です）</div>` : '';
+      const unlockHtml = lockedHtml + got.map((g) => {
         if (g === 'fullRarity') return '<div class="unlock">装備ガチャで<b>エピック</b>も出るようになった！</div>';
         if (g === 'charTicket') return '<div class="unlock">キャラガチャ解放！<b>キャラガチャ10連無料チケット</b>を手に入れた！</div>';
         if (g === 'present') return '<div class="unlock">ロビー左上の<b>プレゼントボックス</b>に運営からのプレゼントが届いた！</div>';
@@ -569,7 +677,7 @@
         <div class="rs-rewards">
           ${xpGot ? `<div class="rs-acc"><span class="acc-lv">Lv ${acc.lv}</span>アカウント経験値 <b>+${fmt(+xpGot.slice(3))}</b><i class="acc-bar"><i style="width:${acc.max ? 100 : Math.round(acc.xp / acc.need * 100)}%"></i></i></div>` : ''}
           ${mine.coins ? `<div>${A.coin()}コイン獲得アビリティ <b>+${fmt(mine.coins)}</b></div>` : ''}
-          ${r.win ? `<div class="m">ミッション：ステージクリア　<b>+${fmt(MC.stageClearReward)}</b> 受け取り可能</div>` : ''}
+          ${cleared ? `<div class="m">ミッション：ステージクリア　<b>+${fmt(MC.stageClearReward)}</b> 受け取り可能</div>` : ''}
           <div class="m">ミッション：撃破（累計 ${fmt(after.kills)}体）${after.killN > before.killN ? `<b>+${fmt((after.killN - before.killN) * MC.killReward)}</b> 受け取り可能` : `次の報酬まであと${MC.killStep - after.killProgress}体`}</div>
           <div class="m">ミッションの報酬はロビーの「ミッション」で受け取れます</div>
         </div>

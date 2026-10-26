@@ -98,6 +98,7 @@
     alarm:    { fn: (o, t) => { for (let i = 0; i < 2; i++) arp(o, t + i * 0.5, [81, 76], 0.18, { type: 'square', dur: 0.16, vol: 0.14 }); } },
     boss:     { fn: (o, t) => { tone(o, t, { f: 55, type: 'sawtooth', dur: 1.2, vol: 0.3, a: 0.05 }); tone(o, t, { f: 82, type: 'sawtooth', dur: 1.2, vol: 0.2, a: 0.05, det: 8 }); noise(o, t, { dur: 1.0, vol: 0.2, freq: 120, type: 'lowpass' }); } },
     beep:     { fn: (o, t) => tone(o, t, { f: 988, dur: 0.12, vol: 0.2 }) },
+    tick:     { limit: 0.03, fn: (o, t) => tone(o, t, { f: 1480, f2: 1100, type: 'triangle', dur: 0.04, vol: 0.14 }) },   // ルーレットのカチカチ
     down:     { fn: (o, t) => arp(o, t, [67, 63, 58], 0.12, { type: 'triangle', dur: 0.2, vol: 0.3 }) },
     revive:   { fn: (o, t) => arp(o, t, [72, 79, 84, 91], 0.07, { type: 'sine', dur: 0.3, vol: 0.3 }) },
     win:      { fn: (o, t) => { arp(o, t, [72, 76, 79], 0.12, { type: 'square', dur: 0.14, vol: 0.2 }); tone(o, t + 0.36, { f: hz(84), type: 'square', dur: 0.8, vol: 0.2 }); tone(o, t + 0.36, { f: hz(76), type: 'triangle', dur: 0.8, vol: 0.2 }); } },

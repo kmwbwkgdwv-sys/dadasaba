@@ -140,6 +140,7 @@
       Object.keys(DS.config.CHARACTERS).forEach((k) => add('c_' + k, A.charSvg(k, 'char-art', { aura: false }), 120, 140, false));
       add('box', A.boxSvg(), 72, 72, false);
       add('heal', A.healSvg(), 72, 72, false);
+      add('chest', A.chest(), 132, 114, false);
       await Promise.all(jobs);
     }
 
@@ -210,6 +211,21 @@
         c.drawImage(this.sp.heal, h[1] - 22, h[2] - 26 + bob, 44, 44);
       }
 
+      // ---- 中ボスの宝箱 ----
+      for (const h of view.CH || []) {
+        if (h[1] < L - 90 || h[1] > R + 90 || h[2] < T - 90 || h[2] > B + 90) continue;
+        const bob = Math.sin(now * 3 + h[0]) * 4, pl = 0.5 + 0.5 * Math.sin(now * 5);
+        const g = c.createRadialGradient(h[1], h[2], 6, h[1], h[2], 70);
+        g.addColorStop(0, `rgba(255,240,150,${0.55 + 0.25 * pl})`); g.addColorStop(1, 'rgba(255,210,61,0)');
+        c.fillStyle = g; c.beginPath(); c.arc(h[1], h[2], 70, 0, TAU); c.fill();
+        c.strokeStyle = `rgba(255,214,90,${0.6 + 0.4 * pl})`; c.lineWidth = 4; c.setLineDash([10, 8]);
+        c.beginPath(); c.arc(h[1], h[2] + 6, 46, now * 0.8, now * 0.8 + TAU); c.stroke(); c.setLineDash([]);
+        if (this.sp.chest) c.drawImage(this.sp.chest, h[1] - 44, h[2] - 46 + bob, 88, 76);
+        c.font = '900 15px "M PLUS Rounded 1c", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.lineWidth = 4; c.strokeStyle = '#231a3a'; c.fillStyle = '#ffe066';
+        c.strokeText('★アップ', h[1], h[2] - 58 + bob); c.fillText('★アップ', h[1], h[2] - 58 + bob);
+      }
+
       // ---- 敵（奥から順に） ----
       const ents = [];
       for (const e of view.E) if (e[2] > L - 200 && e[2] < R + 200 && e[3] > T - 200 && e[3] < B + 200) ents.push(e);
@@ -247,8 +263,22 @@
         c.fillStyle = 'rgba(255,255,255,.6)'; c.beginPath(); c.arc(q[2] - q[4] * 0.3, q[3] - q[4] * 0.3, q[4] * 0.35, 0, TAU); c.fill();
       }
 
+      // ---- ダンボールから出た爆弾 ----
+      for (const m of view.BM || []) {
+        if (m[1] < L - 60 || m[1] > R + 60 || m[2] < T - 60 || m[2] > B + 60) continue;
+        const pop = m[3] ? 1.3 : 1, bx = m[1], by = m[2] - (m[3] ? 10 : 0);
+        c.fillStyle = 'rgba(40,30,40,.25)'; c.beginPath(); c.ellipse(bx, by + 16, 14, 5, 0, 0, TAU); c.fill();
+        c.fillStyle = '#2b2433'; c.strokeStyle = '#0f0b14'; c.lineWidth = 3;
+        c.beginPath(); c.arc(bx, by, 14 * pop, 0, TAU); c.fill(); c.stroke();
+        c.fillStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.arc(bx - 5, by - 5, 4.5, 0, TAU); c.fill();
+        c.strokeStyle = '#c8a46a'; c.lineWidth = 3; c.beginPath(); c.moveTo(bx + 6, by - 11); c.quadraticCurveTo(bx + 14, by - 22, bx + 9, by - 26); c.stroke();
+        const sp = 0.6 + 0.4 * Math.sin(now * 30 + m[0]);
+        c.fillStyle = `rgba(255,${180 + 60 * sp | 0},60,.95)`; c.beginPath(); c.arc(bx + 9, by - 27, 5 * sp + 2, 0, TAU); c.fill();
+        c.fillStyle = '#fff6c2'; c.beginPath(); c.arc(bx + 9, by - 27, 2, 0, TAU); c.fill();
+      }
+
       // ---- エフェクト（一度見たものを短い間だけ表示） ----
-      const SND = { 0: 'zap', 2: 'kill', 3: 'boss', 4: 'shot', 6: 'swing', 8: 'box', 9: 'heal', 11: 'swing', 12: 'boss', 15: 'zap', 16: 'revive', 18: 'boss', 19: 'zap', 20: 'click' };
+      const SND = { 0: 'zap', 2: 'kill', 3: 'boss', 4: 'shot', 6: 'swing', 8: 'box', 9: 'heal', 11: 'swing', 12: 'boss', 15: 'zap', 16: 'revive', 18: 'boss', 19: 'zap', 20: 'click', 21: 'levelup' };
       for (const f of view.X) {
         if (this.seenFx.has(f[0])) continue;
         this.seenFx.set(f[0], { f, t0: now });
@@ -273,9 +303,13 @@
         if (sx > 10 && sx < W - 10 && sy > 10 && sy < H - 10) continue;
         this.edgePin(sx, sy, COLORS[p[1]], (names[p[0]] || '') + (p[6] ? '（ダウン）' : ''), W, H, p[6]);
       }
+      for (const h of view.CH || []) {
+        const sx = W / 2 + (h[1] - cam.x) * this.scale, sy = H / 2 + (h[2] - cam.y) * this.scale;
+        if (sx < 0 || sx > W || sy < 0 || sy > H) this.edgePin(sx, sy, '#ffd23d', '宝箱', W, H, false, true);
+      }
       if (view.altar) {
         const sx = W / 2 + (view.altar[0] - cam.x) * this.scale, sy = H / 2 + (view.altar[1] - cam.y) * this.scale;
-        if (sx < 0 || sx > W || sy < 0 || sy > H) this.edgePin(sx, sy, '#ffd23d', 'ボスの祭壇', W, H, false, true);
+        if (sx < 0 || sx > W || sy < 0 || sy > H) this.edgePin(sx, sy, '#ffd23d', 'ボス出現', W, H, false, true);
       }
     }
 
@@ -578,7 +612,9 @@
         c.save(); c.translate(x, y); c.rotate(now * (kind === 0 ? 5 : -4)); c.drawImage(img, -s / 2, -s / 2, s, s); c.restore();
       } else if (kind === 1) {
         const s = r * 2 * 48 / 42;
-        c.save(); c.translate(x, y); c.rotate(now * 6); c.drawImage(this.sp.p_ball, -s / 2, -s / 2, s, s); c.restore();
+        // 大きいボールは少しすけさせて、うしろの敵や弾が見えるようにする
+        c.save(); c.translate(x, y); c.rotate(now * 6); if (r > 70) c.globalAlpha = r > 120 ? 0.6 : 0.78;
+        c.drawImage(this.sp.p_ball, -s / 2, -s / 2, s, s); c.restore();
       } else if (kind === 2) {
         if (o[6] != null) {
           c.strokeStyle = 'rgba(80,230,255,.9)'; c.lineWidth = 3;
@@ -665,6 +701,18 @@
         g.addColorStop(0, `rgba(255,250,200,${a})`); g.addColorStop(0.5, `rgba(255,150,40,${0.8 * a})`); g.addColorStop(1, `rgba(220,40,40,0)`);
         c.fillStyle = g; c.beginPath(); c.arc(x, y, rr, 0, TAU); c.fill();
         c.strokeStyle = `rgba(255,255,255,${a})`; c.lineWidth = 5; c.beginPath(); c.arc(x, y, rr, 0, TAU); c.stroke();
+      } else if (k === 21) { // 中ボスの宝箱を開けた
+        const a = 1 - age / 1.2;
+        if (a <= 0) return;
+        c.fillStyle = `rgba(255,236,150,${0.35 * a})`; c.beginPath(); c.arc(x, y, 40 + age * 160, 0, TAU); c.fill();
+        c.strokeStyle = `rgba(255,214,90,${a})`; c.lineWidth = 5;
+        for (let i = 0; i < 12; i++) {
+          const an = i * TAU / 12 + age * 2, r0 = 30 + age * 90, r1 = r0 + 30;
+          c.beginPath(); c.moveTo(x + Math.cos(an) * r0, y + Math.sin(an) * r0); c.lineTo(x + Math.cos(an) * r1, y + Math.sin(an) * r1); c.stroke();
+        }
+        c.font = '900 26px "M PLUS Rounded 1c", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.lineWidth = 6; c.strokeStyle = `rgba(35,26,58,${a})`; c.fillStyle = `rgba(255,224,102,${a})`;
+        c.strokeText('★UP!', x, y - 50 - age * 40); c.fillText('★UP!', x, y - 50 - age * 40);
       } else if (k === 13) { // ボスの瞬間移動・手下を呼ぶ煙
         const a = 1 - age / 0.5;
         if (a <= 0) return;
@@ -799,6 +847,11 @@
       for (const b of view.BX || []) x.fillRect(b[1] * sx - 2, b[2] * sy - 2, 4, 4);
       x.fillStyle = '#ff6b7f';
       for (const h of view.HL || []) { x.beginPath(); x.arc(h[1] * sx, h[2] * sy, 3, 0, TAU); x.fill(); }
+      // 中ボスの宝箱
+      for (const h of view.CH || []) {
+        x.fillStyle = '#ffd23d'; x.strokeStyle = '#231a3a'; x.lineWidth = 2;
+        x.beginPath(); x.rect(h[1] * sx - 5, h[2] * sy - 4, 10, 8); x.fill(); x.stroke();
+      }
       // 祭壇・ボス・中ボス
       if (view.altar) { x.fillStyle = '#ffd23d'; x.beginPath(); x.arc(view.altar[0] * sx, view.altar[1] * sy, 6, 0, TAU); x.fill(); x.strokeStyle = '#231a3a'; x.lineWidth = 2; x.stroke(); }
       for (const e of view.E) {

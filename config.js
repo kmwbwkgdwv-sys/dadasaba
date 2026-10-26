@@ -313,6 +313,24 @@ DS.config = {
     bpAmount: 10, essenceAmount: 300,
   },
 
+  // ---- ガチャの天井（この回数のうちに必ず1回出る） ----
+  // 出た時点で数え直し（例：10回目でエピックが出たら、次のエピック確定はまた20回後）
+  //   itemEpic  : 装備ガチャのエピック（S装備もエピックなので、S装備が出ても数え直し）
+  //   itemS     : 装備ガチャのS装備
+  //   charEpic  : キャラガチャのエピック以上
+  //   charLegend: キャラガチャのレジェンド以上（エピックの数も一緒に数え直し）
+  // ※ 装備ガチャはステージ1をクリアするまで（エピックが出ない間）は数えません
+  GACHA_PITY: { itemEpic: 20, itemS: 50, charEpic: 40, charLegend: 222 },
+
+  // ---- 確定ガチャ（装備ガチャの下。限定チケット1枚で1回引ける） ----
+  //   epic1：エピック装備が必ず出る。sRate の確率で S装備（エピック）になる（S装備の確定はなし）
+  //   s1   ：S装備（エピック）が必ず出る
+  //   チケットはミッションの報酬でもらえる（ACHIEVEMENTS の ticket: 'epic1' / 's1'）。天井の回数には入らない
+  SPECIAL_GACHA: {
+    epic1: { name: 'エピック確定ガチャ', ticket: 'エピック確定チケット', desc: 'エピック装備が必ず1つ出る（10%の確率でS装備）', sRate: 0.1 },
+    s1: { name: 'S装備確定ガチャ', ticket: 'S装備確定チケット', desc: 'S装備（エピック）が必ず1つ出る' },
+  },
+
   // ---- キャラクター ----
   // キャラガチャで手に入り、装備画面で設定。レアリティが高いほど ATK と HP の倍率が高い。
   CHAR_MULT: { common: 1.2, uncommon: 1.5, rare: 1.8, epic: 2.2, legend: 3.0, legendPlus: 5.0 },
@@ -404,6 +422,41 @@ DS.config = {
     { id: 'char10', name: 'キャラを10体手に入れる', check: 'charsGot', step: 10, reward: { coins: 300 } },
     { id: 'firstLegendChar', name: '初めてレジェンドキャラを手に入れる', check: 'gotLegendChar', reward: { coins: 30000 } },
     { id: 'firstLegendPlusChar', name: '初めてレジェンド+キャラを手に入れる', check: 'gotLegendPlusChar', reward: { coins: 30000, bp: 300 } },
+    // v11：ステージ・アカウントレベル・ガチャ・ミニゲームなど
+    //   check: stage（クリアしたステージの番号）/ accountLv / pulls（ガチャの合計）/ mgPlay・mgWin（ミニゲーム）
+    //          charLevelUps（キャラのレベルアップ回数）/ shopBuys（ショップで買った回数）
+    { id: 'stage5', name: 'ステージ5をクリアする', check: 'stage', n: 5, reward: { coins: 5000, bp: 10 } },
+    { id: 'stage10', name: 'ステージ10をクリアする', check: 'stage', n: 10, reward: { tool: 'epicBox' } },
+    { id: 'stage20', name: 'ステージ20をクリアする', check: 'stage', n: 20, reward: { coins: 30000, essence: 1000 } },
+    { id: 'stage30', name: 'ステージ30をクリアする', check: 'stage', n: 30, reward: { tool: 'epicBox', toolN: 2 } },
+    { id: 'stage40', name: 'ステージ40をクリアする（むずかしい）', check: 'stage', n: 40, reward: { tool: 'sEpicBox' } },
+    { id: 'stage50', name: 'ステージ50（最後のステージ）をクリアする', check: 'stage', n: 50, reward: { coins: 100000, essence: 5000 } },
+    { id: 'lv10', name: 'アカウントレベル10になる', check: 'accountLv', n: 10, reward: { coins: 10000 } },
+    { id: 'lv20', name: 'アカウントレベル20になる', check: 'accountLv', n: 20, reward: { tool: 'epicBox' } },
+    { id: 'lv30', name: 'アカウントレベル30になる', check: 'accountLv', n: 30, reward: { coins: 50000, essence: 3000 } },
+    { id: 'pull50', name: 'ガチャを合計50回引く', check: 'pulls', n: 50, reward: { ticket: 'item10' } },
+    { id: 'pull200', name: 'ガチャを合計200回引く', check: 'pulls', n: 200, reward: { tool: 'epicBox' } },
+    { id: 'charLv10', name: 'キャラのレベルを10回上げる', check: 'charLevelUps', step: 10, reward: { essence: 1000 } },
+    { id: 'shop10', name: 'ショップで10回買い物をする', check: 'shopBuys', step: 10, reward: { bp: 20 } },
+    { id: 'mgFirst', name: 'ミニゲームを初めて遊ぶ', check: 'mgPlay', n: 1, reward: { coins: 3000 } },
+    { id: 'mgPlay10', name: 'ミニゲームを10回遊ぶ', check: 'mgPlay', step: 10, reward: { bp: 10 } },
+    { id: 'mgWin1', name: 'ミニゲームで初めて勝つ', check: 'mgWin', n: 1, reward: { ticket: 'item10' } },
+    { id: 'mgWin10', name: 'ミニゲームで10回勝つ', check: 'mgWin', n: 10, reward: { tool: 'epicBox' } },
+    { id: 'mgWin30', name: 'ミニゲームで30回勝つ', check: 'mgWin', n: 30, reward: { coins: 50000, ticket: 'char10' } },
+    // 確定ガチャのチケット（epic1：エピック確定チケット / s1：S装備確定チケット）
+    //   エピック確定：全部で10枚（かんたん3枚 ＋ かんたんではない7枚）
+    //   S装備確定  ：全部で3枚（エピック確定のミッションより むずかしい）。ほかに7日間限定ミッションの「3つクリア」でも1枚
+    { id: 'stage3', name: 'ステージ3をクリアする', check: 'stage', n: 3, reward: { ticket: 'epic1' } },            // かんたん
+    { id: 'lvUp5', name: '装備のレベルを合計5回上げる', check: 'levelUps', n: 5, reward: { ticket: 'epic1' } },     // かんたん
+    { id: 'pull30', name: 'ガチャを合計30回引く', check: 'pulls', n: 30, reward: { ticket: 'epic1' } },             // かんたん
+    { id: 'stage15', name: 'ステージ15をクリアする', check: 'stage', n: 15, reward: { ticket: 'epic1' } },
+    { id: 'stage25', name: 'ステージ25をクリアする', check: 'stage', n: 25, reward: { ticket: 'epic1', ticketN: 2 } },
+    { id: 'lv25', name: 'アカウントレベル25になる', check: 'accountLv', n: 25, reward: { ticket: 'epic1' } },
+    { id: 'mgWin20', name: 'ミニゲームで20回勝つ', check: 'mgWin', n: 20, reward: { ticket: 'epic1' } },
+    { id: 'pull500', name: 'ガチャを合計500回引く', check: 'pulls', n: 500, reward: { ticket: 'epic1', ticketN: 2 } },
+    { id: 'stage35', name: 'ステージ35をクリアする（むずかしい）', check: 'stage', n: 35, reward: { ticket: 's1' } },
+    { id: 'lv40', name: 'アカウントレベル40になる（むずかしい）', check: 'accountLv', n: 40, reward: { ticket: 's1' } },
+    { id: 'pull1000', name: 'ガチャを合計1000回引く（むずかしい）', check: 'pulls', n: 1000, reward: { ticket: 's1' } },
   ],
 
   // ---- デイリーミッション（毎日0時にリセット） ----
@@ -429,6 +482,10 @@ DS.config = {
   // onlineSec：この秒数以内に開いていた人を「オンライン」と表示 / inviteMin：招待の有効時間（分）
   FRIENDS: { max: 50, onlineSec: 150, inviteMin: 10, pollSec: 8, heartbeatSec: 60 },
 
+  // ---- ランキングの総合力 ----
+  // 総合力 = ATK × atkWeight ＋ HP。HP はおおよそ ATK の6倍なので、6倍すると ATK と HP が同じ重さになる
+  RANKING: { atkWeight: 6 },
+
   // ---- 7日間限定ミッション（引き継ぎコードを発行した日からスタート） ----
   // 1日目・2日目…はその日にログインすると解放。7日23時間59分59秒で消える
   // type: login（ログイン日数）/ stage（ステージ n をクリア）/ kills（敵を倒した合計）/ pulls（ガチャを引いた合計）
@@ -447,7 +504,7 @@ DS.config = {
     ],
     // クリアしたミッションの数に応じたごほうび
     milestones: [
-      { n: 3, reward: { coins: 3000 } },
+      { n: 3, reward: { ticket: 's1' } },          // v15：3つクリアで S装備確定チケット
       { n: 6, reward: { bp: 20 } },
       { n: 10, reward: { ticket: 'item10' } },
       { n: 15, reward: { bp: 40 } },

@@ -1074,6 +1074,8 @@
       this.el.spec.classList.add('hidden');
       const win = r.winners.includes(this.selfId);
       const solo = r.winners.length === 1;
+      // 戦績（試合数・勝った数）。中断した試合は数えない
+      if (!r.aborted) S.recordMinigame(this.game, win);
       if (DS.sound) { DS.sound.bgm(null); DS.sound.play(win ? 'win' : 'lose'); }
       const title = r.aborted ? '中断' : win && solo ? 'WIN!' : win ? 'ひきわけ' : r.winners.length ? 'LOSE…' : 'ひきわけ';
       const headline = r.aborted ? 'ホストがミニゲームを終了しました'

@@ -63,19 +63,63 @@
   }
   const costOf = (n) => (n === 1 ? C.GACHA.singleCost : C.GACHA.multiCost);
 
+  /* ---------- 天井（この回数のうちに必ず1回出る） ---------- */
+  const PITY = C.GACHA_PITY;
+  const RANK = (k) => S.RARITY[k].rank;
+  /** 装備ガチャの天井：S装備 → エピックの順に調べる。出たら数え直し */
+  function itemPity(r) {
+    const p = S.data.pity;
+    p.ie++; p.is++;
+    let forced = false;
+    if (r !== 's' && p.is >= PITY.itemS) { r = 's'; forced = true; }
+    else if (r !== 's' && r !== 'epic' && p.ie >= PITY.itemEpic) { r = 'epic'; forced = true; }
+    if (r === 's') { p.is = 0; p.ie = 0; }      // S装備もエピックなので、エピックの数も数え直し
+    else if (r === 'epic') p.ie = 0;
+    return { r, forced };
+  }
+  /** キャラガチャの天井：レジェンド以上 → エピック以上の順に調べる */
+  function charPity(r) {
+    const p = S.data.pity;
+    p.ce++; p.cl++;
+    let forced = false;
+    if (RANK(r) < RANK('legend') && p.cl >= PITY.charLegend) { r = 'legend'; forced = true; }
+    else if (RANK(r) < RANK('epic') && p.ce >= PITY.charEpic) { r = 'epic'; forced = true; }
+    if (RANK(r) >= RANK('legend')) { p.cl = 0; p.ce = 0; }
+    else if (RANK(r) >= RANK('epic')) p.ce = 0;
+    return { r, forced };
+  }
+  /** あと何回で確定か */
+  function pityLeft() {
+    const p = S.data.pity;
+    return { ie: PITY.itemEpic - p.ie, is: PITY.itemS - p.is, ce: PITY.charEpic - p.ce, cl: PITY.charLegend - p.cl };
+  }
+
   /** 装備ガチャを n 回引く。ticket=true ならチケットを使う。引けなければ null */
   function pull(n, ticket) {
     if (ticket ? !S.useTicket('item10') : !S.spendCoins(costOf(n))) return null;
     const limited = limitedNow();
     const results = [];
     for (let i = 0; i < n; i++) {
-      const r = rollRarity(limited);
+      let r = rollRarity(limited), forced = false;
+      // ステージ1クリア前（エピックが出ない間）は天井を数えない
+      if (!limited) ({ r, forced } = itemPity(r));
       // 's' は S装備（エピック）
       const item = r === 's' ? rollSItem() : rollItem(), rarity = r === 's' ? C.S_GEAR.minRarity : r;
-      results.push({ kind: 'item', item, rarity, s: r === 's', isNew: S.addItem(item, rarity) });
+      results.push({ kind: 'item', item, rarity, s: r === 's', forced, isNew: S.addItem(item, rarity) });
     }
     S.data.totalPulls += n;
     S.data.stats.itemPulls += n;
+    S.persist();
+    return results;
+  }
+  /** 確定ガチャ（kind：'epic1' エピック確定 / 's1' S装備確定）。チケットを1枚使って1回引く */
+  function pullSpecial(kind) {
+    if (!C.SPECIAL_GACHA[kind] || !S.useTicket(kind)) return null;
+    // エピック確定は sRate（10%）で S装備になる
+    const s = kind === 's1' || Math.random() < (C.SPECIAL_GACHA[kind].sRate || 0);
+    const item = s ? rollSItem() : rollItem(), rarity = s ? C.S_GEAR.minRarity : 'epic';
+    const results = [{ kind: 'item', item, rarity, s, isNew: S.addItem(item, rarity) }];
+    S.data.stats.itemPulls += 1;
     S.persist();
     return results;
   }
@@ -85,8 +129,9 @@
     if (ticket ? !S.useTicket('char10') : !S.spendCoins(costOf(n))) return null;
     const results = [];
     for (let i = 0; i < n; i++) {
-      const rarity = rollRarity(false, 'char'), key = rollChar(rarity);
-      results.push({ kind: 'char', key, rarity, isNew: S.addChar(key) });
+      const { r: rarity, forced } = charPity(rollRarity(false, 'char'));
+      const key = rollChar(rarity);
+      results.push({ kind: 'char', key, rarity, forced, isNew: S.addChar(key) });
     }
     S.data.stats.charPulls += n;
     S.persist();
@@ -142,6 +187,7 @@
       <div class="rate-strip">
         ${rates.map((r) => `<span class="rate rt-${r.key} ${r.open ? '' : 'off'}"><b>${r.name}</b>${r.label}</span>`).join('')}
       </div>
+      ${locked ? '' : pityHtml(isChar, limited)}
       ${limited ? `<p class="rate-note">ステージ1をクリアするまでは、コモン・アンコモン・レアだけが出ます</p>` : ''}
       ${!isChar ? '<p class="rate-note">レジェンドは合成でだけ作れます（エピック❸を3つ）</p>' : ''}
       <button class="link-btn" id="btn-rates">提供割合・${isChar ? 'キャラ' : '全部の装備'}の詳細</button>
@@ -153,8 +199,10 @@
               <span class="gb-label">${C.GACHA.multiCount}回引く</span><span class="gb-cost"><i class="tk">${TICKET}</i>無料チケット ×${tickets}</span></button>`
           : `<button class="btn btn-yellow gacha-btn" data-n="${C.GACHA.multiCount}" ${locked ? 'disabled' : ''}>
               <span class="gb-label">${C.GACHA.multiCount}回引く</span><span class="gb-cost">${A.coin()}${fmt(C.GACHA.multiCost)}</span></button>`}
-      </div>`;
+      </div>
+      ${isChar ? '' : specialHtml()}`;
     $$('.gacha-btn', panel).forEach((b) => b.addEventListener('click', () => run(+b.dataset.n, !!b.dataset.ticket)));
+    $$('.sp-pull', panel).forEach((b) => b.addEventListener('click', () => runSpecial(b.dataset.k)));
     $('#btn-rates', panel).addEventListener('click', isChar ? showCharRates : showRates);
     update();
   }
@@ -189,6 +237,35 @@
     </div>`;
   }
 
+  /** 確定ガチャ（エピック確定・S装備確定）。限定チケットで引く */
+  function specialHtml() {
+    const SG = C.SPECIAL_GACHA;
+    const card = (k) => {
+      const d = SG[k], n = S.data.tickets[k] || 0, s = k === 's1';
+      return `<div class="sp-card ${s ? 'sp-s' : 'sp-epic'}">
+        <span class="sp-ic">${s ? U.itemCard(ORDERED_S[0], 'epic', { cls: 'mini' }) : U.itemCard(ORDERED_ITEMS[0], 'epic', { cls: 'mini' })}</span>
+        <div class="sp-txt"><b class="outline">${esc(d.name)}</b><small>${esc(d.desc)}</small>
+          <span class="sp-tk"><i class="tk tk-${k}">${TICKET}</i>${esc(d.ticket)} <b>×${n}</b></span></div>
+        <button class="btn btn-small ${n ? (s ? 'btn-yellow' : 'btn-pink') : 'btn-gray'} sp-pull" data-k="${k}" ${n ? '' : 'disabled'}>1回引く<small>チケット1枚</small></button>
+      </div>`;
+    };
+    return `<div class="sp-gacha"><div class="sp-head">確定ガチャ<small>限定チケットで引けます</small></div>${card('epic1')}${card('s1')}
+      <p class="rate-note">チケットはミッションの報酬でもらえます。確定ガチャで出たものは天井の回数に入りません</p></div>`;
+  }
+  function runSpecial(k) {
+    const results = pullSpecial(k);
+    if (!results) { toast('チケットがありません', 'error'); return; }
+    sfx('gacha');
+    showResults(1, results, k);
+  }
+
+  function pityHtml(isChar, limited) {
+    const L = pityLeft();
+    if (isChar) return `<div class="pity-row"><span class="pity rt-epic"><small>エピック以上 確定まで</small><b>あと${L.ce}回</b></span><span class="pity rt-legend"><small>レジェンド以上 確定まで</small><b>あと${L.cl}回</b></span></div>`;
+    if (limited) return '<div class="pity-row"><span class="pity off"><small>エピック・S装備の確定（天井）は、ステージ1をクリアすると数え始めます</small></span></div>';
+    return `<div class="pity-row"><span class="pity rt-epic"><small>エピック 確定まで</small><b>あと${L.ie}回</b></span><span class="pity rt-s"><small>S装備 確定まで</small><b>あと${L.is}回</b></span></div>`;
+  }
+
   let lastKey = '';
   function update() {
     const coins = S.data.coins;
@@ -196,7 +273,8 @@
     const ic = $('#char-lock-ic');
     if (ic) ic.classList.toggle('hidden', S.charGachaUnlocked());
     // チケット・解放の状態が変わったら描き直す
-    const key = [S.charGachaUnlocked(), S.fullRarity(), S.data.tickets.item10, S.data.tickets.char10].join();
+    const pt = S.data.pity;
+    const key = [S.charGachaUnlocked(), S.fullRarity(), S.data.tickets.item10, S.data.tickets.char10, S.data.tickets.epic1, S.data.tickets.s1, pt.ie, pt.is, pt.ce, pt.cl].join();
     if (key !== lastKey) { lastKey = key; drawPanel(); }
   }
   function setMode(m) { mode = m; drawPanel(); }
@@ -223,6 +301,7 @@
             <small>エピックとエピックのSでは、エピックのSが${C.S_GEAR.mult}倍強い<br>レジェンドとレジェンドのSでは、レジェンドのSが${C.S_GEAR.mult}倍強い</small>
             <small class="s-list">S装備：${S_KEYS.map((k) => esc(C.ITEMS[k].name)).join('・')}（エピックから。合成でレジェンド・レジェンド+にしても S のまま）</small></div>
         </div>
+        <p class="note dark"><b>天井：</b>エピックは${PITY.itemEpic}回、S装備は${PITY.itemS}回引くまでに必ず1回出ます。出た時点で数え直しです（S装備もエピックなので、S装備が出るとエピックの数も数え直し）。ステージ1をクリアするまでは数えません。</p>
         <p class="note dark">追加効果の%はキャラの総合力（ATK・HP）に対する値で、下のレアリティの効果もすべて得られます（例：レジェンドは 攻撃+15%・体力+15%・パッシブ）。パッシブはエピック以上の装備で発動します。</p>
         ${limitedNow() ? `<p class="note dark">ステージ1をクリアするまでは、エピックとS装備の分がレアになります。クリア後は ${rateTable(false).map((r) => r.name + r.label).join('・')} です。</p>` : ''}
         <p class="note dark">武器・ベルトは <b class="c-atk">ATK</b>、防具・靴は <b class="c-hp">HP</b> が上昇値ぶん上がります。見た目と名前はレアリティ共通で、背景の色だけが変わります。各レアリティの中で ${NORMAL_KEYS.length} 種類の装備が同じ確率で出ます（S装備は別枠）。同じ装備を${C.FUSION.need}つ集めると合成できます（${C.FUSION.marks.slice(1).map((m, i) => `${m} ${C.FUSION.mult[i + 1]}倍`).join('・')}）。${C.FUSION.marks[3]}を${C.FUSION.gradeNeed}つで次のレアリティに、レジェンド${C.FUSION.marks[3]}を${C.FUSION.plusNeed}つでレジェンド+になります。レジェンドは装備ガチャからは出ません（エピック${C.FUSION.marks[3]}を${C.FUSION.gradeNeed}つ合成で作れます）。装備は「設計図」とコインでレベルアップもできます。</p>
@@ -249,6 +328,7 @@
           <thead><tr><th>レアリティ</th><th>出る確率</th><th>1体あたり</th><th>ATK・HPの増加</th></tr></thead>
           <tbody>${rateTable(false, 'char').map((r) => `<tr><td>${U.rarityLabel(r.key)}</td><td><b>${r.label}</b></td><td>${perOne(r.pct, CHAR_KEYS.filter((k) => C.CHARACTERS[k].rarity === r.key).length)}</td><td>×${C.CHAR_MULT[r.key]}</td></tr>`).join('')}</tbody>
         </table>
+        <p class="note dark"><b>天井：</b>エピック以上は${PITY.charEpic}回、レジェンド以上は${PITY.charLegend}回引くまでに必ず1回出ます。出た時点で数え直しです（レジェンド以上が出ると、エピックの数も数え直し）。</p>
         <p class="note dark">「出る確率」がガチャから出る確率です。「ATK・HPの増加」は、そのキャラを設定したときに自分の ATK と HP にかかる倍率です（×1.2 なら1.2倍）。キャラは「装備」画面で設定でき、見た目とスキルは別々に選べます。レア以上は試合中に使える特殊スキルを持っています。</p>
         <h3 class="sub-head">キャラ一覧</h3>
         <div class="item-list">${CHAR_KEYS.map((k) => {
@@ -272,7 +352,7 @@
     showResults(n, results);
   }
 
-  function showResults(n, results) {
+  function showResults(n, results, special) {
     const best = results.reduce((b, r) => (S.RARITY[r.rarity].rank > S.RARITY[b].rank ? r.rarity : b), 'common');
     const ov = document.createElement('div');
     ov.className = `gacha-ov best-${best}`;
@@ -285,11 +365,12 @@
         ${results.map((r, i) => `<div class="res-card" style="--d:${i * 110}ms">
           ${r.kind === 'char' ? U.charCard(r.key, { isNew: r.isNew }) : U.itemCard(r.item, r.rarity, { isNew: r.isNew })}
           <div class="res-name">${esc(r.kind === 'char' ? C.CHARACTERS[r.key].name : C.ITEMS[r.item].name)}</div>
-          ${U.rarityLabel(r.rarity)}${r.s ? '<span class="rlabel rl-s">S</span>' : ''}
+          ${U.rarityLabel(r.rarity)}${r.s ? '<span class="rlabel rl-s">S</span>' : ''}${r.forced ? '<span class="res-pity">確定！</span>' : ''}
         </div>`).join('')}
       </div>
       <div class="gacha-ov-foot">
-        <button class="btn btn-blue" id="g-again">もう一度（${n}回）</button>
+        ${special ? (S.data.tickets[special] ? `<button class="btn btn-blue" id="g-again">もう一度（のこり${S.data.tickets[special]}枚）</button>` : '')
+          : `<button class="btn btn-blue" id="g-again">もう一度（${n}回）</button>`}
         ${results[0].kind === 'item' && S.equipBest(true) ? '<button class="btn btn-green" id="g-best">おすすめ装備</button>' : ''}
         <button class="btn btn-yellow" id="g-ok">OK</button>
       </div>
@@ -307,11 +388,14 @@
 
     const cost = costOf(n);
     const again = $('#g-again', ov);
-    if (S.data.coins < cost) again.classList.add('short');
-    again.addEventListener('click', () => {
-      if (S.data.coins < cost) { toast(`コインが足りません（あと ${fmt(cost - S.data.coins)}）`, 'error'); return; }
-      ov.remove(); run(n);
-    });
+    if (special) { if (again) again.addEventListener('click', () => { ov.remove(); runSpecial(special); }); }
+    else {
+      if (S.data.coins < cost) again.classList.add('short');
+      again.addEventListener('click', () => {
+        if (S.data.coins < cost) { toast(`コインが足りません（あと ${fmt(cost - S.data.coins)}）`, 'error'); return; }
+        ov.remove(); run(n);
+      });
+    }
     $('#g-ok', ov).addEventListener('click', () => { ov.classList.remove('show'); setTimeout(() => ov.remove(), 200); });
     const gb = $('#g-best', ov);
     if (gb) gb.addEventListener('click', () => { S.equipBest(); toast('一番強くなる装備に付け替えました', 'good'); if (DS.sound) DS.sound.play('equip'); gb.remove(); });
@@ -324,5 +408,5 @@
     else if (legend) later(() => toast(`レジェンド${results[0].kind === 'char' ? 'キャラ' : '装備'}を ${legend} 個ゲット！`, 'good', 3000), 1600);
   }
 
-  DS.gacha = { render, update, pull, pullChar, rollRarity, rateTable, setMode };
+  DS.gacha = { render, update, pull, pullChar, pullSpecial, rollRarity, rateTable, setMode, pityLeft };
 })();

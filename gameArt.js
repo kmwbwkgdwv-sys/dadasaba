@@ -766,6 +766,10 @@
     vest: () => box(`<path d="M14 12 L20 10 Q24 16 28 10 L34 12 L36 38 L12 38 Z" fill="#5d6b4a" stroke="${O}" stroke-width="2.6" stroke-linejoin="round"/><rect x="17" y="22" width="14" height="9" rx="2" fill="#7b8a62" stroke="${O}" stroke-width="2"/>`, '#e4e8d2'),
     scroll: () => box(`<rect x="12" y="12" width="24" height="24" fill="#fff1cf" stroke="${O}" stroke-width="2.6"/><circle cx="12" cy="24" r="4" fill="#c9883a" stroke="${O}" stroke-width="2"/><circle cx="36" cy="24" r="4" fill="#c9883a" stroke="${O}" stroke-width="2"/><path d="M17 19 L31 19 M17 24 L31 24 M17 29 L27 29" stroke="#b07a3a" stroke-width="2"/>`, '#ffe6a6'),
     coin: () => box(`<svg x="8" y="8" width="32" height="32" viewBox="0 0 32 32">${DS.art.coin().replace(/^<svg[^>]*>|<\/svg>$/g, '')}</svg>`, '#fff3b0'),
+    // 拡大モジュール：四すみに広がる矢印と虫めがね
+    expand: () => box(`<circle cx="21" cy="21" r="10" fill="#bff0ff" stroke="${O}" stroke-width="2.6"/><path d="M28 28 L37 37" stroke="${O}" stroke-width="4.5" stroke-linecap="round"/>`
+      + `<path d="M17 21 H25 M21 17 V25" stroke="#2f7bf0" stroke-width="2.8" stroke-linecap="round"/>`
+      + `<path d="M7 13 V7 H13 M35 7 H41 V13 M7 35 V41 H13" fill="none" stroke="#2f7bf0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`, '#d6f3ff'),
     heal: () => box(`<path d="M24 38 Q10 28 10 19 Q10 11 17 11 Q22 11 24 16 Q26 11 31 11 Q38 11 38 19 Q38 28 24 38 Z" fill="#ff5a6a" stroke="${O}" stroke-width="2.6" stroke-linejoin="round"/>`, '#ffd6dc'),
   };
   DS.art.skillIcon = (key) => (ICON[key] ? ICON[key]() : '');

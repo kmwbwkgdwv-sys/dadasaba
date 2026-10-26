@@ -8,6 +8,18 @@
 (function () {
   const GC = DS.gameConfig;
   const SP = GC.SKILL_PARAMS;
+  const EV = GC.EVOLVE, EVO = GC.EVO_STAR || 6;   // 赤★1（進化）
+  const BB = GC.BOSS_BUFF || { hp: 1, cd: 1, speed: 1, staticWalk: 0 };
+  /** 試合時間（分）による雑魚の体力の倍率 */
+  function hpCurve(min) {
+    const c = GC.ENEMY_HP_CURVE;
+    if (!c) return 1 + (GC.ENEMY_HP_GROWTH_PER_MIN || 0) * min;
+    if (min <= c[0][0]) return c[0][1];
+    for (let i = 1; i < c.length; i++) {
+      if (min <= c[i][0]) { const [m0, v0] = c[i - 1], [m1, v1] = c[i]; return v0 + (v1 - v0) * (min - m0) / (m1 - m0); }
+    }
+    return c[c.length - 1][1];
+  }
   const ITEMS = DS.config.ITEMS;
   const ENEMY_TYPES = Object.keys(GC.ENEMIES);
   const PROJ_KINDS = ['magic', 'bone', 'seed', 'stone', 'ice', 'fire', 'soul', 'fireMagic', 'iceMagic', 'heal',
@@ -63,7 +75,10 @@
       this.hpMult = sc.hp;
       this.W = GC.WORLD.w; this.H = GC.WORLD.h;
       this.t = 0;
-      this.phase = 'battle';       // battle → gather → countdown → boss → win / lose
+      this.phase = 'battle';       // battle →（8分）warp（ワープ待ち）→ intro（ボス出現待ち）→ boss → win / lose
+      this.introT = 0;             // warp・intro の残り秒
+      this.roulette = null;        // 宝箱のルーレット { seq, left, plan:{pid:{cands,pick}|{heal}}, by, name }
+      this.rlSeq = 0;
       this.level = 1; this.xp = 0;
       this.pendingLv = 0;
       this.levelup = null;         // { seq, options:{pid:[...]}, chosen:{pid:true} }
@@ -82,6 +97,8 @@
       // 1人なら1倍、パーティーなら3倍の難易度
       this.partyDiff = (o.players || []).length > 1 ? GC.DIFFICULTY.party : GC.DIFFICULTY.solo;
       this.boxes = []; this.heals = []; this.boxTimer = 60;
+      this.chests = [];   // 中ボスの宝箱
+      this.bombs = [];    // ダンボールから出た爆弾
       this.rush = 0; this.rushDone = 0; this.rushTimer = 0; this.rushDir = 0;
       this.widowT = 0; this.widowSpd = 0;
 
@@ -175,6 +192,9 @@
       return a;
     }
     cdMul(p) { return 1 / (1 + 0.1 * (p.abilities.battery || 0)); }
+    gravityR(p) { return SP.gravity.r * ((p.skills.gravity || 0) >= EVO ? EV.gravity.r : 1) * this.areaMul(p); }
+    /** 拡大モジュール：攻撃の当たり判定の倍率（★ごとに+10%、赤★1で+60%） */
+    areaMul(p) { return 1 + 0.1 * (p.abilities.expand || 0); }
     /** 武器の攻撃間隔の倍率（ガンマンのファストドロー中は 1/2） */
     wcd(p) { return p.buff.fast > 0 && p.cs && p.cs.rate ? 1 / p.cs.rate : 1; }
 
@@ -230,6 +250,91 @@
       b.broken = true;
       this.fx.push({ id: this.nextId++, k: 8, x: b.x, y: b.y, rt: this.clock });
       if (Math.random() < GC.BOXES.dropRate) this.heals.push({ id: this.nextId++, x: b.x, y: b.y });
+      // 10分の1で爆弾：近くの敵に向かって飛んでいって爆発する（壊した人＝いちばん近いプレイヤーの ATK）
+      const BM = GC.BOXES.bomb;
+      if (BM && Math.random() < BM.rate) {
+        let owner = null, bd = Infinity;
+        this.players.forEach((p) => { const d = dist2(p.x, p.y, b.x, b.y); if (!p.down && d < bd) { bd = d; owner = p; } });
+        this.bombs.push({ id: this.nextId++, x: b.x, y: b.y, tgt: this.nearestEnemy(b.x, b.y, BM.range), owner: owner ? owner.id : null, t: 0 });
+      }
+    }
+    /** 爆弾を動かす（敵を追いかけて、着いたら爆発） */
+    stepBombs(dt) {
+      if (!this.bombs.length) return;
+      const BM = GC.BOXES.bomb;
+      for (const b of this.bombs) {
+        b.t += dt;
+        if (b.t < 0.25) continue;                       // 箱から出てくる
+        if (!b.tgt || b.tgt.dead) b.tgt = this.nearestEnemy(b.x, b.y, BM.range);
+        const t = b.tgt;
+        let boom = !t && b.t > 0.8;
+        if (t) {
+          const dx = t.x - b.x, dy = t.y - b.y, d = Math.hypot(dx, dy) || 1, mv = BM.speed * dt;
+          if (d <= mv + t.r * 0.5) { b.x = t.x; b.y = t.y; boom = true; }
+          else { b.x += dx / d * mv; b.y += dy / d * mv; }
+        }
+        if (b.t > 3) boom = true;
+        if (!boom) continue;
+        b.done = true;
+        this.fx.push({ id: this.nextId++, k: 12, x: b.x, y: b.y, rt: this.clock, r: BM.r });
+        const p = this.players.get(b.owner) || this.alivePlayers()[0];
+        if (p) {
+          const dmg = this.atkOf(p) * BM.dmg;
+          this.enemiesNear(b.x, b.y, BM.r).forEach((e) => this.damageEnemy(e, dmg, p.id));   // ボスも入る
+        }
+        this.hitBoxes(b.x, b.y, BM.r * 0.6);            // 近くのダンボールもこわれる（連鎖）
+      }
+      this.bombs = this.bombs.filter((b) => !b.done);
+    }
+    /**
+     * 宝箱を開けた：時間を止めて、全員がそれぞれルーレット（持っているスキル・アビリティから1つ★が上がる）
+     * 結果はここで決めておき、ルーレットが終わったとき（finishRoulette）に★を上げる
+     */
+    openChest(p, ch) {
+      ch.taken = true;
+      const plan = {};
+      this.players.forEach((q) => {
+        const cands = [];
+        q.order.forEach((k) => { if (q.skills[k] < EVO) cands.push(['s', k, q.skills[k]]); });
+        q.aorder.forEach((k) => { if (q.abilities[k] < EVO) cands.push(['a', k, q.abilities[k]]); });
+        plan[q.id] = cands.length ? { cands, pick: Math.floor(Math.random() * cands.length) } : { heal: true };
+      });
+      this.rlSeq++;
+      this.roulette = { seq: this.rlSeq, left: GC.CHEST.roulette || 5, plan, by: p.id, name: p.name };
+      this.fx.push({ id: this.nextId++, k: 21, x: ch.x, y: ch.y, rt: this.clock, o: p.slot });
+      this.events.push({ type: 'roulette', seq: this.rlSeq, id: p.id, name: p.name, plan, dur: this.roulette.left });
+    }
+    /** 一時停止中（ルーレット）の時間を進める。ゲームの時間は止まったまま */
+    stepRoulette(dt) {
+      if (!this.roulette || this.ended) return;
+      this.roulette.left -= dt;
+      if (this.roulette.left <= 0) this.finishRoulette();
+    }
+    finishRoulette() {
+      const R = this.roulette;
+      if (!R) return;
+      this.roulette = null;
+      const ups = {};
+      this.players.forEach((q) => {
+        const pl = R.plan[q.id];
+        const c = pl && pl.cands ? pl.cands[pl.pick] : null;
+        const opt = c ? { kind: c[0] === 's' ? 'skill' : 'ability', key: c[1] } : null;
+        const cur = opt ? (opt.kind === 'skill' ? q.skills[opt.key] : q.abilities[opt.key]) : null;
+        if (!opt || !cur || cur >= EVO) { ups[q.id] = this.chestUp(q); return; }   // 途中から入った人など
+        this.applyOption(q, opt);
+        ups[q.id] = { kind: opt.kind, key: opt.key, star: opt.kind === 'skill' ? q.skills[opt.key] : q.abilities[opt.key] };
+      });
+      this.events.push({ type: 'chest', id: R.by, name: R.name, ups, seq: R.seq, roulette: true });
+    }
+    /** 宝箱：全員のスキルかアビリティ（どれか1つ）の★を1つ上げる。上げられるものがなければHP回復 */
+    chestUp(p) {
+      const cands = [];
+      Object.keys(p.skills).forEach((k) => { if (p.skills[k] < EVO) cands.push({ kind: 'skill', key: k }); });
+      Object.keys(p.abilities).forEach((k) => { if (p.abilities[k] < EVO) cands.push({ kind: 'ability', key: k }); });
+      if (!cands.length) { if (!p.down) p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.3); return { kind: 'heal' }; }
+      const c = cands[Math.floor(Math.random() * cands.length)];
+      this.applyOption(p, c);
+      return { kind: c.kind, key: c.key, star: c.kind === 'skill' ? p.skills[c.key] : p.abilities[c.key] };
     }
 
     hurtPlayer(p, dmg) {
@@ -291,13 +396,13 @@
     }
     optionsFor(p) {
       const cands = [];
-      const MAX = GC.MAX_STAR;
+      const MAX = EVO;   // ★5 の次は赤★1（進化）まで
       const ownedS = Object.keys(p.skills).length, ownedA = Object.keys(p.abilities).length;
       Object.keys(GC.SKILLS).forEach((k) => {
         const d = GC.SKILLS[k];
         if (d.weapon && k !== p.weapon) return;                 // 別の武器のスキルは出ない
         const s = p.skills[k] || 0;
-        if (s >= MAX) return;                                  // ★5 は出ない
+        if (s >= MAX) return;                                  // 赤★1 は出ない
         if (!s && ownedS >= GC.SLOTS.skills) return;           // 枠がいっぱいなら新しいスキルは出ない
         cands.push({ kind: 'skill', key: k, star: s + 1 });
       });
@@ -341,15 +446,15 @@
     applyOption(p, opt) {
       if (opt.kind === 'skill') {
         if (!p.skills[opt.key]) p.order.push(opt.key);
-        p.skills[opt.key] = Math.min(GC.MAX_STAR, (p.skills[opt.key] || 0) + 1);
+        p.skills[opt.key] = Math.min(EVO, (p.skills[opt.key] || 0) + 1);
       } else if (opt.kind === 'ability') {
         if (!p.abilities[opt.key]) p.aorder.push(opt.key);
-        p.abilities[opt.key] = Math.min(GC.MAX_STAR, (p.abilities[opt.key] || 0) + 1);
+        p.abilities[opt.key] = Math.min(EVO, (p.abilities[opt.key] || 0) + 1);
       } else if (opt.kind === 'heal' && !p.down) {
         p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.3);
       }
     }
-    get paused() { return !!this.levelup; }
+    get paused() { return !!this.levelup || !!this.roulette; }
 
     /* ======================= 敵 ======================= */
     spawnEnemy(type, x, y, extra) {
@@ -357,7 +462,7 @@
       const min = this.t / 60;
       let hpMul;
       if (d.midboss) hpMul = GC.MIDBOSS_HP_SCALE * this.hpMult * this.partyDiff;
-      else hpMul = (1 + GC.ENEMY_HP_GROWTH_PER_MIN * min) * this.hpMult * (d.noParty ? 1 : this.partyDiff);
+      else hpMul = hpCurve(min) * this.hpMult * (d.noParty ? 1 : this.partyDiff);
       const e = Object.assign({
         id: this.nextId++, type, ti: ENEMY_TYPES.indexOf(type), def: d,
         x: clamp(x, 30, this.W - 30), y: clamp(y, 30, this.H - 30), r: d.r,
@@ -383,12 +488,20 @@
       const p = alive[Math.floor(Math.random() * alive.length)];
       const a = Math.random() * TAU, dd = rand(620, 760);
       const cx = p.x + Math.cos(a) * dd, cy = p.y + Math.sin(a) * dd;
-      for (let i = 0; i < n; i++) this.spawnEnemy(pick.type, cx + rand(-60, 60), cy + rand(-60, 60));
+      const F = GC.FLOOD, flood = F && this.t / 60 > F.from;
+      for (let i = 0; i < n; i++) { const e = this.spawnEnemy(pick.type, cx + rand(-60, 60), cy + rand(-60, 60)); if (flood && F.speed) e.speed *= F.speed; }
     }
     /** 画面にいてほしい敵の数（終盤になるほど一気に増える） */
     desiredCount() {
-      const S = GC.SPAWN, min = this.t / 60;
-      return Math.min(GC.MAX_ENEMIES, Math.round((S.base + S.perMin * min + (S.perMin2 || 0) * min * min) * this.partyMul(GC.PARTY.spawn)));
+      const S = GC.SPAWN, F = GC.FLOOD, min = this.t / 60;
+      let n = S.base + S.perMin * min + (S.perMin2 || 0) * min * min;
+      if (F && min > F.from) n = Math.max(n, n + (F.count - n) * clamp((min - F.from) / (F.full - F.from), 0, 1));   // 終盤の大群
+      return Math.min(GC.MAX_ENEMIES, Math.round(n * this.partyMul(GC.PARTY.spawn)));
+    }
+    /** 終盤の大群の間は、出現の間隔を短くする */
+    spawnInterval() {
+      const F = GC.FLOOD, min = this.t / 60;
+      return (F && min > F.from ? F.interval : GC.SPAWN.interval) / this.partyMul(GC.PARTY.spawn);
     }
     spawnMidboss() {
       const alive = this.alivePlayers();
@@ -415,20 +528,68 @@
         e.speed *= R.speedMul;
       }
     }
+    /** 8分：雑魚と中ボスを消して、BOSS_INTRO.warp 秒後にボス戦の場所へワープする */
+    startBossPhase() {
+      const BI = GC.BOSS_INTRO;
+      // 消える煙（プレイヤーの近くの敵だけ）
+      let n = 0;
+      for (const e of this.enemies) {
+        if (e.dead || n >= 80) continue;
+        let near = false;
+        this.players.forEach((p) => { if (dist2(e.x, e.y, p.x, p.y) < 900 * 900) near = true; });
+        if (!near) continue;
+        this.fx.push({ id: this.nextId++, k: 13, x: e.x, y: e.y, rt: this.clock, r: e.r });
+        n++;
+      }
+      this.bombs.forEach((b) => { b.tgt = null; });   // 消える雑魚を追いかけない
+      this.enemies = []; this.eshots = []; this.blasts = this.blasts.filter((B) => B.hurts === 'enemies'); this.rush = 0;
+      this.phase = 'warp'; this.introT = BI.warp;
+      this.events.push({ type: 'bossWarp', sec: BI.warp });
+    }
+    /** ボス戦の場所へワープ：全員を横一列に並べ、少し前に回復アイテムを人数分置く。BOSS_INTRO.wait 秒後にボス */
+    warpToBoss() {
+      const BI = GC.BOSS_INTRO;
+      const all = [...this.players.values()], alive = all.filter((p) => !p.down);
+      const src = alive.length ? alive : all;
+      if (!src.length) return;
+      const cx = clamp(src.reduce((a, p) => a + p.x, 0) / src.length, 900, this.W - 900);
+      const cy = clamp(src.reduce((a, p) => a + p.y, 0) / src.length, 1100, this.H - 900);
+      this.bossHome = { x: cx, y: cy };
+      const bx = cx, by = cy - GC.ALTAR.radius - 170;      // ボスが出てくる場所（北側）
+      this.altar = { x: bx, y: by, r: BI.summonR };       // 出現の魔法陣
+      // 全員を横一列でワープ（ボスの方を向く）
+      const pos = {}, rowY = cy + 130;
+      all.forEach((p, i) => {
+        p.x = cx + (i - (all.length - 1) / 2) * BI.gap; p.y = rowY; p.face = -Math.PI / 2;
+        pos[p.id] = [Math.round(p.x), Math.round(p.y)];
+        if (p.ball) { p.ball.x = p.x; p.ball.y = p.y; }
+        if (p.ball2) { p.ball2.x = p.x; p.ball2.y = p.y; }
+        // 少し前に回復アイテム（だれでも取れる）
+        this.heals.push({ id: this.nextId++, x: p.x, y: rowY - BI.healAhead, ratio: BI.healRatio });
+        this.fx.push({ id: this.nextId++, k: 13, x: p.x, y: p.y, rt: this.clock, r: 30 });
+      });
+      // 開けていない宝箱もボス戦の場所へ
+      this.chests.forEach((c, i) => { c.x = cx - 200 + (i % 5) * 100; c.y = cy + 260; });
+      this.boxes = this.boxes.filter((b) => dist2(b.x, b.y, cx, cy) > 700 * 700);   // 近くのダンボールはどける
+      this.phase = 'intro'; this.introT = BI.wait;
+      this.events.push({ type: 'warp', pos, wait: BI.wait });
+    }
     spawnBoss() {
       const key = this.roster.boss, d = GC.BOSSES[key];
       const n = this.players.size;
       const BP = GC.BOSS_PARTY;
-      const hp = GC.BOSS_BASE_HP * (d.hp || 1) * this.hpMult * (n > 1 ? BP.timeRatio * (1 + BP.perExtra * (n - 1)) : 1);
-      this.enemies = []; this.eshots = []; this.blasts = this.blasts.filter((B) => B.hurts === 'enemies'); this.rush = 0;   // ボス出現と同時に雑魚は消える（自分たちの攻撃は残す）
-      const home = { x: this.altar.x, y: this.altar.y };
-      // ボスは祭壇の少し奥（北側）に出現。集まったプレイヤーと重ならないようにする
-      this.boss = this.spawnEnemy('bigZombie', home.x, home.y - this.altar.r - 170, {
+      const hp = GC.BOSS_BASE_HP * (d.hp || 1) * BB.hp * this.hpMult * (n > 1 ? BP.timeRatio * (1 + BP.perExtra * (n - 1)) : 1);
+      this.bombs.forEach((b) => { b.tgt = null; });
+      this.enemies = []; this.eshots = []; this.blasts = this.blasts.filter((B) => B.hurts === 'enemies'); this.rush = 0;   // 雑魚は残さない（自分たちの攻撃は残す）
+      const home = this.bossHome || { x: this.altar.x, y: this.altar.y + GC.ALTAR.radius + 170 };
+      // ボスはワープした場所の北側（魔法陣）に出現
+      this.boss = this.spawnEnemy('bigZombie', home.x, home.y - GC.ALTAR.radius - 170, {
         isBoss: true, bossKey: key, bdef: d, r: d.r, hp, maxHp: hp, speed: 0, xpv: 0, mid: false,
         cd: 2.5, gearAng: 0, ti: -1, home, mv: { st: 'walk', t: (d.move.cd || 4) * 0.6, ang: -Math.PI / 2 },
-        atkT: d.attacks.map((a) => (a.cd || 3) * rand(0.35, 0.7)), spiralAng: 0, spiralOn: 0, ringRot: 0,
+        atkT: d.attacks.map((a) => (a.cd || 3) * BB.cd * rand(0.3, 0.6)), spiralAng: 0, spiralOn: 0, ringRot: 0,
       });
       this.phase = 'boss';
+      this.fx.push({ id: this.nextId++, k: 3, x: this.boss.x, y: this.boss.y, rt: this.clock, r: d.r });
       this.events.push({ type: 'boss', name: d.name });
     }
     damageEnemy(e, amount, owner) {
@@ -452,7 +613,10 @@
       }
       this.fx.push({ id: this.nextId++, k: e.isBoss ? 3 : 2, x: e.x, y: e.y, rt: this.clock, r: e.r });
       if (e.isBoss) { this.finish(true); return; }
-      if (e.mid) this.events.push({ type: 'midbossDown' });
+      if (e.mid) {
+        this.chests.push({ id: this.nextId++, x: e.x, y: e.y });
+        this.events.push({ type: 'midbossDown', chest: true });
+      }
       this.gainXp(e.xpv);
     }
     nearestEnemy(x, y, range, exclude) {
@@ -474,7 +638,9 @@
 
     /* ======================= 1ステップ ======================= */
     step(dt) {
-      if (this.ended || this.levelup) return;
+      if (this.ended) return;
+      if (this.roulette) { this.stepRoulette(dt); return; }   // 宝箱のルーレット中は時間が止まる
+      if (this.levelup) return;
       this.clock += dt;
       const players = this.alivePlayers();
 
@@ -486,19 +652,14 @@
         });
         if (this.t >= GC.MATCH_SECONDS) {
           this.t = GC.MATCH_SECONDS;
-          this.phase = 'gather';
-          this.altar = { x: this.W / 2, y: this.H / 2, r: GC.ALTAR.radius };
-          this.events.push({ type: 'gather' });
+          this.startBossPhase();
         }
-      }
-      if (this.phase === 'gather' || this.phase === 'countdown') {
-        const inside = players.filter((p) => dist2(p.x, p.y, this.altar.x, this.altar.y) < this.altar.r * this.altar.r).length;
-        this.altar.inside = inside; this.altar.total = players.length;
-        if (players.length && inside === players.length) {
-          if (this.phase === 'gather') { this.phase = 'countdown'; this.countdown = GC.ALTAR.countdown; }
-          this.countdown -= dt;
-          if (this.countdown <= 0) this.spawnBoss();
-        } else if (this.phase === 'countdown') { this.phase = 'gather'; this.countdown = -1; }
+      } else if (this.phase === 'warp') {
+        this.introT -= dt;
+        if (this.introT <= 0) this.warpToBoss();
+      } else if (this.phase === 'intro') {
+        this.introT -= dt;
+        if (this.introT <= 0) this.spawnBoss();
       }
 
       // ---- 中ボスの少し前のラッシュ ----
@@ -536,12 +697,23 @@
         for (const h of this.heals) {
           if (!h.taken && dist2(p.x, p.y, h.x, h.y) < (p.r + 24) * (p.r + 24)) {
             h.taken = true;
-            p.hp = Math.min(p.maxHp, p.hp + p.maxHp * GC.BOXES.healRatio);
+            p.hp = Math.min(p.maxHp, p.hp + p.maxHp * (h.ratio || GC.BOXES.healRatio));
             if (p.pas.leatherBelt) p.buff.lbelt = p.pas.leatherBelt.dur;
             this.fx.push({ id: this.nextId++, k: 9, x: p.x, y: p.y, rt: this.clock, o: p.slot });
           }
         }
       }
+      // ---- 中ボスの宝箱を開ける（だれかが開けると、全員がルーレットで★を1つ上げる） ----
+      for (const p of players) {
+        if (this.roulette) break;
+        for (const ch of this.chests) {
+          if (ch.taken || dist2(p.x, p.y, ch.x, ch.y) > (p.r + GC.CHEST.r) * (p.r + GC.CHEST.r)) continue;
+          this.openChest(p, ch);
+          break;      // 1回に開けるのは1つ（ほかの宝箱はルーレットが終わってから）
+        }
+      }
+      if (this.chests.some((c) => c.taken)) this.chests = this.chests.filter((c) => !c.taken);
+      this.stepBombs(dt);
       if (this.boxes.some((b) => b.broken)) this.boxes = this.boxes.filter((b) => !b.broken);
       if (this.heals.some((h) => h.taken)) this.heals = this.heals.filter((h) => !h.taken);
 
@@ -566,10 +738,10 @@
       });
 
       // ---- 出現 ----
-      if (this.phase !== 'boss') {
+      if (this.phase === 'battle') {
         this.spawnTimer -= dt;
         if (this.spawnTimer <= 0) {
-          this.spawnTimer = GC.SPAWN.interval / this.partyMul(GC.PARTY.spawn);
+          this.spawnTimer = this.spawnInterval();
           if (this.enemies.length < this.desiredCount()) this.spawnGroup();
         }
       }
@@ -587,9 +759,11 @@
       for (const p of players) {
         const g = p.skills.gravity;
         if (g) {
-          const amt = Math.min(0.9, SP.gravity.slow + SP.gravity.slowStep * (g - 1));
-          const dps = (SP.gravity.dps + SP.gravity.dpsStep * (g - 1)) * this.atkOf(p);
-          for (const e of this.enemiesNear(p.x, p.y, SP.gravity.r)) {
+          // 重力発生機（進化：範囲1.6倍・ダメージ2倍）。拡大モジュールで範囲が広がる
+          const gs = Math.min(g, EVO), ge = g >= EVO;
+          const amt = Math.min(0.9, SP.gravity.slow + SP.gravity.slowStep * (gs - 1));
+          const dps = (SP.gravity.dps + SP.gravity.dpsStep * (gs - 1)) * (ge ? EV.gravity.dps : 1) * this.atkOf(p);
+          for (const e of this.enemiesNear(p.x, p.y, this.gravityR(p))) {
             if (!e.isBoss) e.slow = Math.min(e.slow, 1 - amt);
             this.damageEnemy(e, dps * dt, p.id);
           }
@@ -700,13 +874,18 @@
       const slow = b.slow;
       // ---- 動き ----
       const mv = b.mv;
-      if (M.t === 'walk' || M.t === 'dash') {
+      if (M.t === 'static' && BB.staticWalk) {
+        // 動かないボスも、ゆっくり近づいてくる（くっつきすぎない）
+        const dx = tgt.x - b.x, dy = tgt.y - b.y, dd = Math.hypot(dx, dy);
+        if (dd > b.r + 140) { b.x += dx / dd * BB.staticWalk * slow * dt; b.y += dy / dd * BB.staticWalk * slow * dt; }
+        b.flip = dx < 0;
+      } else if (M.t === 'walk' || M.t === 'dash') {
         if (mv.st === 'walk') {
           const a = Math.atan2(tgt.y - b.y, tgt.x - b.x);
-          b.x += Math.cos(a) * (M.speed || 40) * slow * dt; b.y += Math.sin(a) * (M.speed || 40) * slow * dt;
+          b.x += Math.cos(a) * (M.speed || 40) * BB.speed * slow * dt; b.y += Math.sin(a) * (M.speed || 40) * BB.speed * slow * dt;
           b.flip = Math.cos(a) < 0;
           if (M.t === 'dash') {
-            mv.t -= dt;
+            mv.t -= dt * BB.speed;
             if (mv.t <= 0) { mv.st = 'wind'; mv.t = M.wind; mv.ang = a; mv.len = M.dash * M.dur; }
           }
         } else if (mv.st === 'wind') {
@@ -718,7 +897,7 @@
           if (mv.t <= 0) { mv.st = 'walk'; mv.t = M.cd; }
         }
       } else if (M.t === 'teleport') {
-        mv.t -= dt;
+        mv.t -= dt * BB.speed;
         if (mv.t <= 0) {
           mv.t = M.cd;
           const p = players[Math.floor(Math.random() * players.length)];
@@ -730,7 +909,7 @@
           b.atkT = b.atkT.map((t) => Math.max(t, 0.6));
         }
       } else if (M.t === 'orbit') {
-        mv.ang += (M.speed || 0.4) * slow * dt;
+        mv.ang += (M.speed || 0.4) * BB.speed * slow * dt;
         const tx = b.home.x + Math.cos(mv.ang) * (M.radius || 260), ty = b.home.y + Math.sin(mv.ang) * (M.radius || 260);
         b.x += (tx - b.x) * Math.min(1, dt * 2); b.y += (ty - b.y) * Math.min(1, dt * 2);
         b.flip = Math.sin(mv.ang) > 0;
@@ -768,7 +947,7 @@
         }
         b.atkT[i] -= dt * b.atkSlow;
         if (b.atkT[i] > 0 || busy) return;
-        b.atkT[i] = A.cd;
+        b.atkT[i] = A.cd * BB.cd;
         const base = Math.atan2(tgt.y - b.y, tgt.x - b.x);
         if (A.t === 'aim') {
           for (let k = 0; k < A.n; k++) this.bossShot(b, base + (A.n > 1 ? (k / (A.n - 1) - 0.5) * A.spread : 0), A);
@@ -860,16 +1039,20 @@
     /** ライトセイバーの範囲（★と剣聖で広がる） */
     saberRange(p) {
       const L = SP.lightsaber, s = p.skills.lightsaber || 1;
-      return L.r * (1 + L.rStep * (s - 1)) * (p.cs && p.cs.saberRange ? p.cs.saberRange : 1);
+      return L.r * (1 + L.rStep * (Math.min(s, EVO) - 1)) * (s >= EVO ? EV.lightsaber.range : 1) * (p.cs && p.cs.saberRange ? p.cs.saberRange : 1) * this.areaMul(p);
     }
     skillsAct(p, dt) {
       const atk = this.atkOf(p);
       const S = p.skills;
+      const am = this.areaMul(p);                       // 拡大モジュール
+      const evo = (k) => (S[k] || 0) >= EVO;            // 赤★1（進化）
+      const st = (k) => Math.min(S[k] || 0, EVO);
 
-      // クナイ：追尾して必中
-      if (S.kunai && this.ready(p, 'kunai', SP.kunai.cd * this.wcd(p), dt)) {
+      // クナイ：追尾して必中（進化：0.4秒ごとに8本）
+      if (S.kunai && this.ready(p, 'kunai', (evo('kunai') ? EV.kunai.cd : SP.kunai.cd) * this.wcd(p), dt)) {
         const used = new Set(), targets = [];
-        for (let i = 0; i < S.kunai; i++) {
+        const count = evo('kunai') ? EV.kunai.count : S.kunai;
+        for (let i = 0; i < count; i++) {
           const t = this.nearestEnemy(p.x, p.y, SP.kunai.range, used) || targets[i % Math.max(1, targets.length)];
           if (!t) break;
           used.add(t.id); targets.push(t);
@@ -877,84 +1060,97 @@
         if (!targets.length) p.cd.kunai = 0.1;
         targets.forEach((t, i) => {
           const a = Math.atan2(t.y - p.y, t.x - p.x) + (i - (targets.length - 1) / 2) * 0.25;
-          this.shots.push({ id: this.nextId++, kind: 0, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.kunai.speed, vy: Math.sin(a) * SP.kunai.speed, tgt: t, dmg: atk * SP.kunai.dmg, life: 2.5, r: 8 });
+          this.shots.push({ id: this.nextId++, kind: 0, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.kunai.speed, vy: Math.sin(a) * SP.kunai.speed, tgt: t, dmg: atk * SP.kunai.dmg, life: 2.5, r: 8 * am });
         });
       }
-      // ショットガン：散弾
+      // ショットガン：散弾（進化：0.35秒ごとに広い散弾）
       if (S.shotgun) {
-        const cd = SP.shotgun.cd - SP.shotgun.cdStep * (S.shotgun - 1);
+        const E = evo('shotgun');
+        const cd = E ? EV.shotgun.cd : SP.shotgun.cd - SP.shotgun.cdStep * (S.shotgun - 1);
         if (this.ready(p, 'shotgun', cd * this.wcd(p), dt)) {
-          const t = this.nearestEnemy(p.x, p.y, SP.shotgun.range + 40);
+          // 近くの敵に向けて撃つ（オートエイム）。少し遠い敵にも向けて撃ち始める
+          const t = this.nearestEnemy(p.x, p.y, SP.shotgun.range * (SP.shotgun.aim || 1) + 40);
           if (!t) p.cd.shotgun = 0.1;
           else {
             const base = Math.atan2(t.y - p.y, t.x - p.x);
-            const n = SP.shotgun.pellets;
-            const per = atk * SP.shotgun.total * Math.pow(SP.shotgun.mult, S.shotgun - 1) / n;
+            const n = E ? EV.shotgun.pellets : SP.shotgun.pellets, spread = E ? EV.shotgun.spread : SP.shotgun.spread;
+            const per = atk * SP.shotgun.total * Math.pow(SP.shotgun.mult, st('shotgun') - 1) / n;
             for (let i = 0; i < n; i++) {
-              const a = base + (i / (n - 1) - 0.5) * SP.shotgun.spread + rand(-0.04, 0.04);
-              this.shots.push({ id: this.nextId++, kind: 1, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.shotgun.speed, vy: Math.sin(a) * SP.shotgun.speed, dmg: per, life: SP.shotgun.range / SP.shotgun.speed, r: 5 });
+              const a = base + (i / (n - 1) - 0.5) * spread + rand(-0.04, 0.04);
+              this.shots.push({ id: this.nextId++, kind: 1, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.shotgun.speed, vy: Math.sin(a) * SP.shotgun.speed, dmg: per, life: SP.shotgun.range / SP.shotgun.speed, r: 5 * am });
             }
           }
         }
       }
       // ライトセイバー：近くの敵を自動で狙って（オートエイム）90度の範囲を斬る
       // 届くところに敵（なければダンボール）がいないときは、振らずに待つ
+      // 進化：0.4秒ごとに全方向を回転斬り（いつも発動）
       if (S.lightsaber) {
         const L = SP.lightsaber;
-        const cd = Math.max(0.2, L.cd - L.cdStep * (S.lightsaber - 1));
         const r = this.saberRange(p);
-        let tgt = this.nearestEnemy(p.x, p.y, r + 60);
-        if (tgt && Math.hypot(tgt.x - p.x, tgt.y - p.y) > r + tgt.r) tgt = null;
-        if (!tgt) tgt = this.boxes.find((bx) => !bx.broken && dist2(p.x, p.y, bx.x, bx.y) < (r + bx.r) * (r + bx.r)) || null;
-        if (!tgt) p.cd.lightsaber = Math.max(0, (p.cd.lightsaber == null ? 0.3 : p.cd.lightsaber) - dt);
-        else if (this.ready(p, 'lightsaber', cd * this.wcd(p), dt)) {
-          const aim = Math.atan2(tgt.y - p.y, tgt.x - p.x);
-          const dmg = atk * L.dmg * Math.pow(L.mult, S.lightsaber - 1);
-          this.enemiesNear(p.x, p.y, r).forEach((e) => {
-            const a = Math.atan2(e.y - p.y, e.x - p.x);
-            const slack = Math.asin(Math.min(1, e.r / Math.max(1, Math.hypot(e.x - p.x, e.y - p.y))));   // 大きい敵は少し外れても当たる
-            if (Math.abs(angDiff(a, aim)) <= L.arc / 2 + slack) this.damageEnemy(e, dmg, p.id);
-          });
-          this.hitBoxes(p.x + Math.cos(aim) * r * 0.6, p.y + Math.sin(aim) * r * 0.6, r * 0.5);
-          this.fx.push({ id: this.nextId++, k: 6, x: p.x, y: p.y, r, a: aim, rt: this.clock, o: p.slot });
+        const dmg = atk * L.dmg * Math.pow(L.mult, st('lightsaber') - 1);
+        if (evo('lightsaber')) {
+          if (this.ready(p, 'lightsaber', EV.lightsaber.cd * this.wcd(p), dt)) {
+            this.enemiesNear(p.x, p.y, r).forEach((e) => this.damageEnemy(e, dmg, p.id));
+            this.hitBoxes(p.x, p.y, r);
+            this.fx.push({ id: this.nextId++, k: 11, x: p.x, y: p.y, r, rt: this.clock, o: p.slot });
+          }
+        } else {
+          const cd = Math.max(0.2, L.cd - L.cdStep * (S.lightsaber - 1));
+          let tgt = this.nearestEnemy(p.x, p.y, r + 60);
+          if (tgt && Math.hypot(tgt.x - p.x, tgt.y - p.y) > r + tgt.r) tgt = null;
+          if (!tgt) tgt = this.boxes.find((bx) => !bx.broken && dist2(p.x, p.y, bx.x, bx.y) < (r + bx.r) * (r + bx.r)) || null;
+          if (!tgt) p.cd.lightsaber = Math.max(0, (p.cd.lightsaber == null ? 0.3 : p.cd.lightsaber) - dt);
+          else if (this.ready(p, 'lightsaber', cd * this.wcd(p), dt)) {
+            const aim = Math.atan2(tgt.y - p.y, tgt.x - p.x);
+            this.enemiesNear(p.x, p.y, r).forEach((e) => {
+              const a = Math.atan2(e.y - p.y, e.x - p.x);
+              const slack = Math.asin(Math.min(1, e.r / Math.max(1, Math.hypot(e.x - p.x, e.y - p.y))));   // 大きい敵は少し外れても当たる
+              if (Math.abs(angDiff(a, aim)) <= L.arc / 2 + slack) this.damageEnemy(e, dmg, p.id);
+            });
+            this.hitBoxes(p.x + Math.cos(aim) * r * 0.6, p.y + Math.sin(aim) * r * 0.6, r * 0.5);
+            this.fx.push({ id: this.nextId++, k: 6, x: p.x, y: p.y, r, a: aim, rt: this.clock, o: p.slot });
+          }
         }
       }
       // ミニガン：10秒撃ち続けて、リロード（★でリロードが短くなる）。近くの敵を自動で狙う
+      // 進化：リロードなしで1秒に30発
       if (S.minigun) {
-        const M = SP.minigun;
+        const M = SP.minigun, E = evo('minigun');
         if (!p.mg) p.mg = { st: 'fire', t: M.fire, acc: 0 };
         const mg = p.mg;
+        if (E && mg.st === 'reload') { mg.st = 'fire'; mg.t = M.fire; }
         if (mg.st === 'reload') {
           mg.t -= dt;
           if (mg.t <= 0) { mg.st = 'fire'; mg.t = M.fire; }
         } else {
           const t = this.nearestEnemy(p.x, p.y, M.range);
           if (t) {
-            mg.t -= dt;
+            if (!E) mg.t -= dt;
             const burst = p.pas.minigun && p.buff.mgBurst > 0 ? p.pas.minigun.rate : 1;
-            mg.acc += M.rate * burst * dt / (this.cdMul(p) * this.wcd(p));
+            mg.acc += (E ? EV.minigun.rate : M.rate) * burst * dt / (this.cdMul(p) * this.wcd(p));
             while (mg.acc >= 1) {
               mg.acc -= 1;
               const a = Math.atan2(t.y - p.y, t.x - p.x) + rand(-0.06, 0.06);
-              this.shots.push({ id: this.nextId++, kind: 3, owner: p.id, x: p.x, y: p.y - 6, vx: Math.cos(a) * M.speed, vy: Math.sin(a) * M.speed, dmg: atk * M.dmg, life: M.range / M.speed, r: 5 });
+              this.shots.push({ id: this.nextId++, kind: 3, owner: p.id, x: p.x, y: p.y - 6, vx: Math.cos(a) * M.speed, vy: Math.sin(a) * M.speed, dmg: atk * M.dmg, life: M.range / M.speed, r: 5 * am });
             }
             if (mg.t <= 0) { mg.st = 'reload'; mg.t = Math.max(0.5, M.reload - M.reloadStep * (S.minigun - 1)); mg.acc = 0; }
           } else mg.acc = Math.min(mg.acc, 1);
         }
       }
-      // 破壊の力：近くの敵を自動で狙ってブラックホールを撃つ
+      // 破壊の力：近くの敵を自動で狙ってブラックホールを撃つ（進化：2秒ごとに大きなブラックホール）
       if (S.destroyerPower) {
-        const D = SP.destroyerPower;
-        if (this.ready(p, 'destroyerPower', D.cd * this.wcd(p), dt)) {
+        const D = SP.destroyerPower, E = evo('destroyerPower');
+        if (this.ready(p, 'destroyerPower', (E ? EV.destroyerPower.cd : D.cd) * this.wcd(p), dt)) {
           const t = this.nearestEnemy(p.x, p.y, D.range);
           if (!t) p.cd.destroyerPower = 0.2;
-          else this.spawnHole(p, t.x, t.y, 1, D.dur + D.durStep * (S.destroyerPower - 1), atk);
+          else this.spawnHole(p, t.x, t.y, E ? EV.destroyerPower.scale : 1, E ? EV.destroyerPower.dur : D.dur + D.durStep * (S.destroyerPower - 1), atk);
         }
       }
-      // リボルバー：近くの敵1体を撃ち抜く（デュアル中は2発）
+      // リボルバー：近くの敵1体を撃ち抜く（デュアル中は2発）（進化：0.25秒ごと）
       if (S.revolver) {
         const V = SP.revolver;
-        const cd = Math.max(0.1, V.cd - V.cdStep * (S.revolver - 1));
+        const cd = evo('revolver') ? EV.revolver.cd : Math.max(0.1, V.cd - V.cdStep * (S.revolver - 1));
         if (this.ready(p, 'revolver', cd * this.wcd(p), dt)) {
           const shots = p.buff.dual > 0 ? 2 : 1;
           const used = new Set();
@@ -963,83 +1159,96 @@
             if (!t) { if (i === 0) p.cd.revolver = 0.05; break; }
             used.add(t.id);
             this.fx.push({ id: this.nextId++, k: 4, x: p.x + (i ? 8 : -4), y: p.y - 6, tx: t.x, ty: t.y, rt: this.clock });
-            this.damageEnemy(t, atk * V.dmg * Math.pow(V.mult, S.revolver - 1), p.id);
+            this.damageEnemy(t, atk * V.dmg * Math.pow(V.mult, st('revolver') - 1), p.id);
+            // 拡大モジュール：撃ち抜いた敵のまわりにも少し当たる
+            if (am > 1) this.enemiesNear(t.x, t.y, 30 * (am - 1) * 2).forEach((e) => { if (e !== t) this.damageEnemy(e, atk * V.dmg * 0.5, p.id); });
           }
         }
       }
-      // ディフェンサー：回る歯車
+      // ディフェンサー：回る歯車（進化：8つ・速く回る・当たる間隔が半分）
       if (S.defender) {
-        p.gearAng += SP.defender.angSpeed * dt;
-        const n = S.defender + 1;
+        const E = evo('defender');
+        p.gearAng += (E ? EV.defender.speed : SP.defender.angSpeed) * dt;
+        const n = E ? EV.defender.count : S.defender + 1;
+        const gr = SP.defender.r * am, hitCd = E ? EV.defender.hitCd : SP.defender.hitCd;
         for (let i = 0; i < n; i++) {
           const a = p.gearAng + i * TAU / n;
           const gx = p.x + Math.cos(a) * SP.defender.orbit, gy = p.y + Math.sin(a) * SP.defender.orbit;
-          this.hitBoxes(gx, gy, SP.defender.r);
-          this.grid.each(gx, gy, SP.defender.r + 60, (e) => {
-            if (e.dead || dist2(gx, gy, e.x, e.y) > (SP.defender.r + e.r) * (SP.defender.r + e.r)) return;
-            if (this.hitReady(e, 'g' + p.id, SP.defender.hitCd)) this.damageEnemy(e, atk * SP.defender.dmg, p.id);
+          this.hitBoxes(gx, gy, gr);
+          this.grid.each(gx, gy, gr + 60, (e) => {
+            if (e.dead || dist2(gx, gy, e.x, e.y) > (gr + e.r) * (gr + e.r)) return;
+            if (this.hitReady(e, 'g' + p.id, hitCd)) this.damageEnemy(e, atk * SP.defender.dmg, p.id);
           });
         }
       }
-      // ドローン：近くの敵を狙って撃つ（命中率50%）
+      // ドローン：近くの敵を狙って撃つ（命中率50%）（進化：発射数1.5倍・必中）
       if (S.drone) {
+        const E = evo('drone');
         const ox = p.x - 34, oy = p.y - 46 + Math.sin(this.t * 4) * 4;
         if (!p.drone) p.drone = { x: ox, y: oy, tgt: null, miss: 0 };
         p.drone.x += (ox - p.drone.x) * Math.min(1, dt * 8); p.drone.y += (oy - p.drone.y) * Math.min(1, dt * 8);
         let t = p.drone.tgt;
         if (!t || t.dead || dist2(p.x, p.y, t.x, t.y) > SP.drone.range * SP.drone.range) t = p.drone.tgt = this.nearestEnemy(p.x, p.y, SP.drone.range);
         if (t) {
-          p.droneAcc += (SP.drone.rate + SP.drone.rateStep * (S.drone - 1)) * dt / this.cdMul(p);
+          p.droneAcc += (SP.drone.rate + SP.drone.rateStep * (st('drone') - 1)) * (E ? EV.drone.rate : 1) * dt / this.cdMul(p);
+          const acc = E ? EV.drone.accuracy : SP.drone.accuracy;
           while (p.droneAcc >= 1 && !t.dead) {
             p.droneAcc -= 1;
-            if (Math.random() < SP.drone.accuracy) this.damageEnemy(t, atk * SP.drone.dmg, p.id);
+            if (Math.random() < acc) this.damageEnemy(t, atk * SP.drone.dmg, p.id);
             else p.drone.miss = this.clock;        // 外れた（描画で弾がそれる）
           }
         } else p.droneAcc = 0;
       }
-      // 雷発生機
-      if (S.thunder && this.ready(p, 'thunder', SP.thunder.cd, dt)) {
+      // 雷発生機（進化：0.7秒ごとに6本）
+      if (S.thunder && this.ready(p, 'thunder', evo('thunder') ? EV.thunder.cd : SP.thunder.cd, dt)) {
         const cands = this.byDistance(p, this.enemiesNear(p.x, p.y, SP.thunder.range));
         if (!cands.length) p.cd.thunder = 0.2;
-        cands.slice(0, S.thunder).forEach((t) => {
+        const fr = SP.thunder.fieldR * am;
+        cands.slice(0, evo('thunder') ? EV.thunder.count : S.thunder).forEach((t) => {
           this.fx.push({ id: this.nextId++, k: 0, x: t.x, y: t.y, rt: this.clock });
-          this.zones.push({ id: this.nextId++, kind: 0, owner: p.id, x: t.x, y: t.y, r: SP.thunder.fieldR, dps: atk * SP.thunder.fieldDps, life: SP.thunder.fieldTime, max: SP.thunder.fieldTime });
+          this.zones.push({ id: this.nextId++, kind: 0, owner: p.id, x: t.x, y: t.y, r: fr, dps: atk * SP.thunder.fieldDps, life: SP.thunder.fieldTime, max: SP.thunder.fieldTime });
           this.damageEnemy(t, atk * SP.thunder.dmg, p.id);
         });
       }
-      // サッカーボール：画面の端で跳ね返る
+      // サッカーボール：画面の端で跳ね返る（進化：2つ・速い）
       if (S.soccer) {
-        const r = SP.soccer.rPerStar * S.soccer, sp = SP.soccer.speed + SP.soccer.speedStep * (S.soccer - 1);
+        const E = evo('soccer');
+        const r = (SP.soccer.r + SP.soccer.rStep * (Math.min(S.soccer, GC.MAX_STAR) - 1)) * am;   // 進化しても大きさは★5のまま（2つになる）
+        const sp = (SP.soccer.speed + SP.soccer.speedStep * (st('soccer') - 1)) * (E ? EV.soccer.speed : 1);
         const aimFrom = (b) => {   // オートエイム：ボールから一番近い敵の方へ
           const t = this.nearestEnemy(b.x, b.y, 520);
           if (t) { const a = Math.atan2(t.y - b.y, t.x - b.x); b.vx = Math.cos(a); b.vy = Math.sin(a); }
         };
         if (!p.ball) { const a = rand(0, TAU); p.ball = { x: p.x, y: p.y, vx: Math.cos(a), vy: Math.sin(a) }; aimFrom(p.ball); }
-        const b = p.ball;
-        const len = Math.hypot(b.vx, b.vy) || 1;
-        b.vx /= len; b.vy /= len;
-        b.x += b.vx * sp * dt; b.y += b.vy * sp * dt;
-        const L = p.x - p.vw + r, R = p.x + p.vw - r, T = p.y - p.vh + r, B = p.y + p.vh - r;
-        let bounced = false;
-        if (b.x < L) { b.x = L; b.vx = Math.abs(b.vx); bounced = true; } else if (b.x > R) { b.x = R; b.vx = -Math.abs(b.vx); bounced = true; }
-        if (b.y < T) { b.y = T; b.vy = Math.abs(b.vy); bounced = true; } else if (b.y > B) { b.y = B; b.vy = -Math.abs(b.vy); bounced = true; }
-        if (bounced) aimFrom(b);
-        b.r = r;
-        this.hitBoxes(b.x, b.y, r);
-        this.grid.each(b.x, b.y, r + 60, (e) => {
-          if (e.dead || dist2(b.x, b.y, e.x, e.y) > (r + e.r) * (r + e.r)) return;
-          if (this.hitReady(e, 'b' + p.id, SP.soccer.hitCd)) this.damageEnemy(e, atk * SP.soccer.dmg, p.id);
+        if (E && !p.ball2) { const a = rand(0, TAU); p.ball2 = { x: p.x, y: p.y, vx: Math.cos(a), vy: Math.sin(a) }; }
+        [p.ball, E ? p.ball2 : null].forEach((b, bi) => {
+          if (!b) return;
+          const len = Math.hypot(b.vx, b.vy) || 1;
+          b.vx /= len; b.vy /= len;
+          b.x += b.vx * sp * dt; b.y += b.vy * sp * dt;
+          const L = p.x - p.vw + r, R = p.x + p.vw - r, T = p.y - p.vh + r, B = p.y + p.vh - r;
+          let bounced = false;
+          if (b.x < L) { b.x = L; b.vx = Math.abs(b.vx); bounced = true; } else if (b.x > R) { b.x = R; b.vx = -Math.abs(b.vx); bounced = true; }
+          if (b.y < T) { b.y = T; b.vy = Math.abs(b.vy); bounced = true; } else if (b.y > B) { b.y = B; b.vy = -Math.abs(b.vy); bounced = true; }
+          if (bounced && bi === 0) aimFrom(b);
+          b.r = r;
+          this.hitBoxes(b.x, b.y, r);
+          this.grid.each(b.x, b.y, r + 60, (e) => {
+            if (e.dead || dist2(b.x, b.y, e.x, e.y) > (r + e.r) * (r + e.r)) return;
+            if (this.hitReady(e, 'b' + bi + p.id, SP.soccer.hitCd)) this.damageEnemy(e, atk * SP.soccer.dmg, p.id);
+          });
         });
       }
-      // 火炎瓶
-      if (S.molotov && this.ready(p, 'molotov', SP.molotov.cd, dt)) {
+      // 火炎瓶（進化：1.2秒ごとに4つ）
+      if (S.molotov && this.ready(p, 'molotov', evo('molotov') ? EV.molotov.cd : SP.molotov.cd, dt)) {
         const near = this.byDistance(p, this.enemiesNear(p.x, p.y, 320));
-        for (let i = 0; i < SP.molotov.bottles; i++) {
+        const nb = SP.molotov.bottles + SP.molotov.moreAt.filter((n) => S.molotov >= n).length, s2 = st('molotov');   // ★2・★4・赤★1 で1本ずつ増える
+        for (let i = 0; i < nb; i++) {
           let tx, ty;
           if (near[i]) { tx = near[i].x; ty = near[i].y; }
           else { const a = rand(0, TAU); tx = p.x + Math.cos(a) * SP.molotov.throwDist; ty = p.y + Math.sin(a) * SP.molotov.throwDist; }
           this.bottles.push({ id: this.nextId++, owner: p.id, x0: p.x, y0: p.y, x1: tx, y1: ty, t: 0, dur: 0.6,
-            r: SP.molotov.r + SP.molotov.rStep * (S.molotov - 1), dps: atk * (SP.molotov.dps + SP.molotov.dpsStep * (S.molotov - 1)) });
+            r: (SP.molotov.r + SP.molotov.rStep * (s2 - 1)) * am, dps: atk * (SP.molotov.dps + SP.molotov.dpsStep * (s2 - 1)) });
         }
       }
     }
@@ -1054,14 +1263,14 @@
         const base = t ? Math.atan2(t.y - p.y, t.x - p.x) : p.face;
         for (let i = 0; i < P.kunai.count; i++) {
           const a = base + (i - (P.kunai.count - 1) / 2) * 0.22;
-          this.shots.push({ id: this.nextId++, kind: 2, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.kunai.speed, vy: Math.sin(a) * SP.kunai.speed, dmg: atk * P.kunai.dmg, life: 0.95, r: 9 });
+          this.shots.push({ id: this.nextId++, kind: 2, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.kunai.speed, vy: Math.sin(a) * SP.kunai.speed, dmg: atk * P.kunai.dmg, life: 0.95, r: 9 * this.areaMul(p) });
         }
       }
       // ショットガン：10秒に1度、全方向に撃つ
       if (P.shotgun && this.pready(p, 'shotgun', P.shotgun.cd, dt)) {
         for (let i = 0; i < P.shotgun.count; i++) {
           const a = i * TAU / P.shotgun.count + rand(-0.08, 0.08);
-          this.shots.push({ id: this.nextId++, kind: 1, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.shotgun.speed, vy: Math.sin(a) * SP.shotgun.speed, dmg: atk * P.shotgun.dmg, life: SP.shotgun.range * 1.2 / SP.shotgun.speed, r: 5 });
+          this.shots.push({ id: this.nextId++, kind: 1, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.shotgun.speed, vy: Math.sin(a) * SP.shotgun.speed, dmg: atk * P.shotgun.dmg, life: SP.shotgun.range * 1.2 / SP.shotgun.speed, r: 5 * this.areaMul(p) });
         }
         this.fx.push({ id: this.nextId++, k: 7, x: p.x, y: p.y, r: 90, rt: this.clock });
       }
@@ -1069,7 +1278,7 @@
       if (P.lightsaber && this.pready(p, 'lightsaber', P.lightsaber.cd, dt)) {
         const L = SP.lightsaber, s = p.skills.lightsaber || 1;
         const r = this.saberRange(p) * P.lightsaber.range;
-        const dmg = atk * L.dmg * Math.pow(L.mult, s - 1) * P.lightsaber.dmg;
+        const dmg = atk * L.dmg * Math.pow(L.mult, Math.min(s, EVO) - 1) * P.lightsaber.dmg;
         this.enemiesNear(p.x, p.y, r).forEach((e) => this.damageEnemy(e, dmg, p.id));
         this.hitBoxes(p.x, p.y, r);
         this.fx.push({ id: this.nextId++, k: 11, x: p.x, y: p.y, r, rt: this.clock, o: p.slot });
@@ -1097,7 +1306,7 @@
         let t = this.nearestEnemy(p.x, p.y, 600);
         if (this.boss && !this.boss.dead && dist2(p.x, p.y, this.boss.x, this.boss.y) < 700 * 700) t = this.boss;
         const x = t ? t.x : p.x + Math.cos(p.face) * 200, y = t ? t.y : p.y + Math.sin(p.face) * 200;
-        this.blasts.push({ id: this.nextId++, kind: 2, x, y, r: P.stellaBelt.r, t: 0.7, max: 0.7, dmg: atk * P.stellaBelt.dmg, hurts: 'enemies', owner: p.id });
+        this.blasts.push({ id: this.nextId++, kind: 2, x, y, r: P.stellaBelt.r * this.areaMul(p), t: 0.7, max: 0.7, dmg: atk * P.stellaBelt.dmg, hurts: 'enemies', owner: p.id });
       }
       // フロストブーツ：10秒に1度、一番近い敵を凍らせる（中ボス・ボス以外）
       if (P.frostBoots && this.pready(p, 'frost', P.frostBoots.cd, dt)) {
@@ -1117,8 +1326,8 @@
     }
     /** ブラックホールをつくる（破壊の力） */
     spawnHole(p, x, y, scale, dur, atk) {
-      const D = SP.destroyerPower, s = p.skills.destroyerPower || 1;
-      const r = (D.r + D.rStep * (s - 1)) * scale;
+      const D = SP.destroyerPower, s = Math.min(p.skills.destroyerPower || 1, EVO);
+      const r = (D.r + D.rStep * (s - 1)) * scale * this.areaMul(p);
       this.zones.push({ id: this.nextId++, kind: 2, owner: p.id, x, y, r, dps: atk * D.dps, life: dur, max: dur, pull: D.pull, pullR: r * D.pullR });
       this.fx.push({ id: this.nextId++, k: 19, x: p.x, y: p.y - 10, tx: x, ty: y, rt: this.clock });
     }
@@ -1196,7 +1405,7 @@
       if (this.ended) return;
       this.ended = true;
       this.phase = win ? 'win' : 'lose';
-      this.levelup = null;
+      this.levelup = null; this.roulette = null;
       const stats = {};
       this.players.forEach((p) => { stats[p.id] = { kills: p.kills, coins: 300 * (p.abilities.coin || 0) }; });
       this.result = { win, time: this.t, level: this.level, stats, stage: this.stageIndex };
@@ -1212,19 +1421,21 @@
       const P = [], E = [], K = [], Q = [], Z = [], O = [], X = [], W = [];
       this.players.forEach((p) => {
         P.push([p.id, p.slot, R(p.x), R(p.y), R(p.hp), R(p.maxHp), p.down ? 1 : 0, +(p.revive / GC.PLAYER.reviveSeconds).toFixed(2), p.kills,
-          this.buildOf(p), p.skills.gravity ? SP.gravity.r : 0, (p.frost ? 1 : 0) | (p.stella ? 2 : 0),
+          this.buildOf(p), p.skills.gravity ? Math.round(this.gravityR(p)) : 0, (p.frost ? 1 : 0) | (p.stella ? 2 : 0),
           p.look, +p.scd.toFixed(1), +Math.max(p.buff.inv, p.buff.spd, p.buff.fast, p.char === 'widow' ? Math.max(0, this.widowT) : 0).toFixed(1),
           (p.buff.inv > 0 ? 1 : 0) | (p.buff.spd > 0 ? 2 : 0) | (p.buff.fast > 0 ? 4 : 0) | (p.shield ? 8 : 0) | (p.buff.dual > 0 ? 16 : 0) | (p.buff.lbelt > 0 ? 32 : 0),
           +p.face.toFixed(2)]);
         if (p.down) return;
         if (p.skills.defender) {
-          const n = p.skills.defender + 1;
+          const n = p.skills.defender >= EVO ? EV.defender.count : p.skills.defender + 1;
+          const gr = R(SP.defender.r * this.areaMul(p));
           for (let i = 0; i < n; i++) {
             const a = p.gearAng + i * TAU / n;
-            O.push([0, R(p.x + Math.cos(a) * SP.defender.orbit), R(p.y + Math.sin(a) * SP.defender.orbit), SP.defender.r, p.slot, p.id + 'g' + i]);
+            O.push([0, R(p.x + Math.cos(a) * SP.defender.orbit), R(p.y + Math.sin(a) * SP.defender.orbit), gr, p.slot, p.id + 'g' + i]);
           }
         }
         if (p.ball) O.push([1, R(p.ball.x), R(p.ball.y), p.ball.r || 20, p.slot, p.id + 'b']);
+        if (p.ball2 && p.skills.soccer >= EVO) O.push([1, R(p.ball2.x), R(p.ball2.y), p.ball2.r || 20, p.slot, p.id + 'b2']);
         if (p.hdrone) O.push([5, R(p.hdrone.x), R(p.hdrone.y), 14, p.slot, p.id + 'h']);
         if (p.drone) {
           const t = p.drone.tgt && !p.drone.tgt.dead ? p.drone.tgt : null;
@@ -1259,14 +1470,19 @@
       for (const f of this.fx) X.push([f.id, f.k, R(f.x), R(f.y), R(f.r || 0), f.tx != null ? R(f.tx) : null, f.ty != null ? R(f.ty) : null, f.o != null ? f.o : -1, f.a != null ? +f.a.toFixed(2) : 0]);
       const BX = this.boxes.map((b) => [b.id, R(b.x), R(b.y)]);
       const HL = this.heals.map((h) => [h.id, R(h.x), R(h.y)]);
+      const CH = this.chests.map((c) => [c.id, R(c.x), R(c.y)]);
+      const BM = this.bombs.map((b) => [b.id, R(b.x), R(b.y), b.t < 0.25 ? 1 : 0]);
       const boss = this.boss && !this.boss.dead ? [this.boss.id, this.boss.bossKey, R(this.boss.hp), R(this.boss.maxHp)] : null;
-      const altar = this.altar && this.phase !== 'boss' && !this.ended
-        ? [R(this.altar.x), R(this.altar.y), this.altar.r, this.phase === 'countdown' ? +this.countdown.toFixed(1) : -1, this.altar.inside || 0, this.altar.total || 0] : null;
+      // ボス出現の魔法陣（intro の間）と残り秒
+      const altar = this.altar && this.phase === 'intro' && !this.ended
+        ? [R(this.altar.x), R(this.altar.y), this.altar.r, +Math.max(0, this.introT).toFixed(1), 0, 0] : null;
       return {
         tm: +this.t.toFixed(2), ph: this.phase, lv: this.level, xp: R(this.xp), nd: this.need,
         lu: this.levelup ? Object.keys(this.levelup.options).filter((id) => !this.levelup.chosen[id]) : null,
-        P, E, K, Q, Z, O, X, W, boss, altar, BX, HL,
+        P, E, K, Q, Z, O, X, W, boss, altar, BX, HL, CH, BM,
         rs: this.rush > 0 ? 1 : 0, wd: this.widowT > 0 ? 1 : 0, pd: this.partyDiff,
+        wp: this.phase === 'warp' ? +Math.max(0, this.introT).toFixed(1) : null,      // ワープまでの残り秒
+        rl: this.roulette ? [this.roulette.seq, +this.roulette.left.toFixed(1)] : null, // 宝箱のルーレット中
       };
     }
   }

@@ -24,10 +24,40 @@
     return ks[ks.length - 1];
   }
   const emptyBp = () => ({ weapon: 0, armor: 0, belt: 0, boots: 0 });
-  const emptyStats = () => ({ itemPulls: 0, charPulls: 0, fuses: 0, levelUps: 0, charsGot: 0, charLevelUps: 0, shopBuys: 0 });
+  // mgPlay / mgWin：ミニゲームの試合数・勝った数（mgP_dodge などはゲームごと）
+  const emptyStats = () => {
+    const st = { itemPulls: 0, charPulls: 0, fuses: 0, levelUps: 0, charsGot: 0, charLevelUps: 0, shopBuys: 0, mgPlay: 0, mgWin: 0 };
+    ((C.MINIGAMES && C.MINIGAMES.list) || []).forEach((g) => { st['mgP_' + g.key] = 0; st['mgW_' + g.key] = 0; });
+    return st;
+  };
+  const emptyPity = () => ({ ie: 0, is: 0, ce: 0, cl: 0 });
   const SG = C.S_GEAR;
   const S_ITEMS = Object.keys(C.ITEMS).filter((k) => C.ITEMS[k].s);
   const NORMAL_ITEMS = Object.keys(C.ITEMS).filter((k) => !C.ITEMS[k].s);
+  const emptyTrades = () => ({ out: {}, inc: {}, done: {} });
+  const TICKET_KINDS = ['item10', 'char10', 'epic1', 's1'];
+  const GIFT_MAX_COINS = 100000000;
+  /** 管理ページから届いたプレゼントの形をそろえる（変な値は入れない） */
+  function cleanGift(g) {
+    if (!g || typeof g !== 'object') return null;
+    const coins = Math.floor(Number(g.coins));
+    if (!(coins >= 0)) return null;
+    const tickets = {};
+    TICKET_KINDS.forEach((k) => { const n = Math.floor(Number(g.tickets && g.tickets[k]) || 0); if (n > 0) tickets[k] = Math.min(n, 999); });
+    const out = { title: String(g.title || '運営からのプレゼント').slice(0, 40), text: String(g.text || '').slice(0, 300),
+      coins: Math.min(coins, GIFT_MAX_COINS), tickets, at: Number(g.at) || 0 };
+    if (Number(g.until) > 0) out.until = Number(g.until);   // 受け取れる期限（全員へのプレゼント）
+    return out;
+  }
+  function cleanTrades(t) {
+    const o = emptyTrades();
+    if (!t || typeof t !== 'object') return o;
+    Object.keys(t.out || {}).forEach((uid) => { const x = t.out[uid]; if (x && x.id && validTradeKey(x.give)) o.out[uid] = Object.assign({}, x); });
+    Object.keys(t.inc || {}).forEach((id) => { const x = t.inc[id]; if (x && x.from && validTradeKey(x.give)) o.inc[id] = Object.assign({}, x); });
+    // 終わったトレードは新しい100件だけ覚える
+    Object.keys(t.done || {}).map((id) => [id, Number(t.done[id]) || 0]).sort((a, b) => b[1] - a[1]).slice(0, 100).forEach(([id, at]) => { o.done[id] = at; });
+    return o;
+  }
   const emptyLimited = () => ({ start: 0, days: [], base: null, claimed: {}, ms: {} });
   /** 端末の時計での日付（YYYY-MM-DD） */
   function dayKey(t) { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -66,7 +96,8 @@
       // ミッションの進み具合（回数を数えて、受け取った回数との差が受け取れる報酬）
       missions: { clears: 0, clearsClaimed: 0, kills: 0, killsClaimed: 0, stages: {} },
       account: { xp: 0 },           // アカウントレベルの経験値（ステージクリアでもらえる）
-      presents: { claimed: {} },    // 受け取った運営プレゼント
+      presents: { claimed: {}, gifts: {}, all: {} },   // 受け取った運営プレゼント / gifts：管理ページから自分に届いたもの / all：全員へのもの
+      trades: emptyTrades(),        // フレンドとのトレード（送った申し込み・受けている途中・終わったもの）
       levels: {},                   // 装備のレベル（キーごと。書いていなければ Lv1）
       blueprints: emptyBp(),        // 設計図（武器・防具・ベルト・靴）
       stats: emptyStats(),          // ガチャを引いた回数など（7日間限定ミッション用）
@@ -79,6 +110,7 @@
       daily: null,                  // デイリーミッション { day, base, claimed, ms }
       shop: null,                   // ショップ { period, items, refDay, refN }
       friendId: '',                 // フレンドID（引き継ぎのプレイヤーIDとは別）
+      pity: emptyPity(),            // ガチャの天井：前に出てから引いた回数（ie:装備エピック is:装備S ce:キャラエピック cl:キャラレジェンド）
       updatedAt: Date.now(),
     };
     C.STARTER_ITEMS.forEach((st) => {
@@ -95,7 +127,7 @@
     const s = Object.assign(freshSave(), old);
     s.missions = Object.assign(freshSave().missions, s.missions || {});
     s.flags = s.flags && typeof s.flags === 'object' ? s.flags : {};
-    s.tickets = Object.assign({ item10: 0, char10: 0 }, s.tickets || {});
+    s.tickets = Object.assign({ item10: 0, char10: 0, epic1: 0, s1: 0 }, s.tickets || {});
     if ((old.version || 1) < 3) {
       // 前のバージョンからの移行：まだガチャを引いていなければ最初のチケットを渡す
       s.tickets.item10 = (old.totalPulls || 0) > 0 ? 0 : C.START_TICKETS.item10;
@@ -118,7 +150,12 @@
       s.account = { xp: Math.max(xp, (s.account && s.account.xp) || 0) };
     }
     s.account = { xp: Math.max(0, Math.floor(Number(s.account && s.account.xp) || 0)) };
-    s.presents = { claimed: Object.assign({}, s.presents && s.presents.claimed) };
+    const gifts = {};
+    Object.keys((s.presents && s.presents.gifts) || {}).forEach((gid) => { const g = cleanGift(s.presents.gifts[gid]); if (g) gifts[gid] = g; });
+    const all = {};
+    Object.keys((s.presents && s.presents.all) || {}).forEach((gid) => { const g = cleanGift(s.presents.all[gid]); if (g) all[gid] = g; });
+    s.presents = { claimed: Object.assign({}, s.presents && s.presents.claimed), gifts, all };
+    s.trades = cleanTrades(s.trades);
     s.chars = s.chars && typeof s.chars === 'object' ? s.chars : {};
     // 装備のキーを「アイテム:レアリティ:合成段階」にそろえる
     const inv = {};
@@ -159,7 +196,7 @@
     if (s.char && !s.chars[s.char]) s.char = null;
     if (s.look && !C.CHARACTERS[s.look]) s.look = null;
     if (s.icon && !C.CHARACTERS[s.icon]) s.icon = null;
-    ['item10', 'char10'].forEach((k) => { s.tickets[k] = Math.max(0, Math.floor(Number(s.tickets[k]) || 0)); });
+    ['item10', 'char10', 'epic1', 's1'].forEach((k) => { s.tickets[k] = Math.max(0, Math.floor(Number(s.tickets[k]) || 0)); });
     // 装備のレベル：持っている装備だけ、そのレアリティの上限まで
     const lvs = {};
     Object.keys(s.levels || {}).forEach((k) => {
@@ -192,6 +229,9 @@
     if (!s.daily || typeof s.daily !== 'object' || typeof s.daily.day !== 'string') s.daily = null;
     if (!s.shop || typeof s.shop !== 'object' || !Array.isArray(s.shop.items)) s.shop = null;
     s.friendId = typeof s.friendId === 'string' ? s.friendId.replace(/\D/g, '').slice(0, 9) : '';
+    const pt = emptyPity();
+    Object.keys(pt).forEach((k) => { pt[k] = Math.max(0, Math.floor(Number(s.pity && s.pity[k]) || 0)); });
+    s.pity = pt;
     noteFlags(s);
     s.version = 7;
     grantProgressRewards(s);
@@ -331,7 +371,7 @@
     if (r.coins) { save.coins += r.coins; out.coins = r.coins; }
     if (r.bp) out.bp = addRandomBlueprints(r.bp);
     if (r.essence) { save.essence += r.essence; out.essence = r.essence; }
-    if (r.ticket) { save.tickets[r.ticket] = (save.tickets[r.ticket] || 0) + 1; out.ticket = r.ticket; }
+    if (r.ticket) { const n = r.ticketN || 1; save.tickets[r.ticket] = (save.tickets[r.ticket] || 0) + n; out.ticket = r.ticket; out.ticketN = n; }
     if (r.tool) { const n = r.toolN || 1; save.tools[r.tool] = (save.tools[r.tool] || 0) + n; out.tool = r.tool; out.toolN = n; }
     return out;
   }
@@ -707,22 +747,145 @@
   /** 受け取れる状態のプレゼント一覧（まだ条件を満たしていないものは入らない） */
   function presentList() {
     const cleared = progress() + 1;
-    return (C.PRESENTS || []).filter((pr) => cleared >= (pr.after || 0))
+    // 管理ページから届いたもの（id は 'g:' ＋ 届いたときの番号）。古い順に並べる（画面では新しい順）
+    const G = save.presents.gifts, AL = save.presents.all;
+    // 全員へのもの（id は 'a:' ＋ 番号）。期限が過ぎたものは、受け取っていなければ出さない
+    const now = Date.now();
+    const gifts = Object.keys(G).map((gid) => Object.assign({ id: 'g:' + gid, gift: gid }, G[gid]))
+      .concat(Object.keys(AL).map((gid) => Object.assign({ id: 'a:' + gid, allGift: gid }, AL[gid])))
+      .filter((g) => !(g.until && now > g.until && !save.presents.claimed[g.id]))
+      .sort((a, b) => (a.at || 0) - (b.at || 0));
+    return (C.PRESENTS || []).filter((pr) => cleared >= (pr.after || 0)).concat(gifts)
       .map((pr) => Object.assign({ claimed: !!save.presents.claimed[pr.id] }, pr));
   }
   const presentCount = () => presentList().filter((p) => !p.claimed).length;
-  const presentsVisible = () => progress() >= 0 && (C.PRESENTS || []).length > 0;
-  /** プレゼントを受け取る（id を省略すると全部）。もらったコインの合計を返す */
+  const presentsVisible = () => (progress() >= 0 && (C.PRESENTS || []).length > 0) || Object.keys(save.presents.gifts).length > 0 || Object.keys(save.presents.all).length > 0;
+  /**
+   * プレゼントを受け取る（id を省略すると全部）
+   * { coins: コインの合計, got: grantReward の結果の配列, gifts: 受け取った管理ページのプレゼントの番号 } を返す
+   */
   function claimPresent(id) {
     let coins = 0;
+    const got = [], gifts = [], allGifts = [];
     presentList().forEach((pr) => {
       if (pr.claimed || (id && pr.id !== id)) return;
       save.presents.claimed[pr.id] = Date.now();
-      coins += pr.coins || 0;
+      if (pr.coins) { got.push(grantReward({ coins: pr.coins })); coins += pr.coins; }
+      Object.keys(pr.tickets || {}).forEach((k) => { got.push(grantReward({ ticket: k, ticketN: pr.tickets[k] })); });
+      if (pr.gift) gifts.push(pr.gift);
+      if (pr.allGift) allGifts.push(pr.allGift);
     });
-    if (coins) save.coins += coins;
     persist();
-    return coins;
+    return { coins, got, gifts, allGifts };
+  }
+  /**
+   * サーバーにある管理ページのプレゼント（{ 番号: { title, text, coins, tickets, at, claimed } }）と合わせる
+   *   ・新しいもの → プレゼントボックスに入れる
+   *   ・ほかの端末で受け取り済み → 受け取り済みにする（もう一度はもらえない）
+   *   ・まだ受け取っていないのにサーバーから消えた（管理ページで取り消した）→ 消す
+   * { added: 新しく届いた数, report: 受け取ったことをサーバーに書く番号 } を返す
+   */
+  function syncGifts(remote) {
+    const G = save.presents.gifts, CL = save.presents.claimed;
+    let added = 0, changed = false;
+    const report = [];
+    Object.keys(remote || {}).forEach((gid) => {
+      const r = remote[gid], g = cleanGift(r);
+      if (!g) return;
+      if (!G[gid]) { G[gid] = g; changed = true; if (!r.claimed && !CL['g:' + gid]) added++; }
+      if (r.claimed && !CL['g:' + gid]) { CL['g:' + gid] = Number(r.claimed) || Date.now(); changed = true; }
+      if (!r.claimed && CL['g:' + gid]) report.push(gid);
+    });
+    Object.keys(G).forEach((gid) => {
+      if (!(remote && remote[gid]) && !CL['g:' + gid]) { delete G[gid]; changed = true; }
+    });
+    if (changed) persist();
+    return { added, report };
+  }
+
+  /**
+   * 全員へのプレゼント（giftsAll）と合わせる。新しいものを入れ、受け取っていないのに消えた・期限が過ぎたものは消す
+   * 新しく届いた数を返す
+   */
+  function syncGiftsAll(remote) {
+    const AL = save.presents.all, CLM = save.presents.claimed, now = Date.now();
+    let added = 0, changed = false;
+    Object.keys(remote || {}).forEach((gid) => {
+      const g = cleanGift(remote[gid]);
+      if (!g || AL[gid]) return;
+      if (g.until && now > g.until) return;
+      AL[gid] = g; changed = true;
+      if (!CLM['a:' + gid]) added++;
+    });
+    Object.keys(AL).forEach((gid) => {
+      if (CLM['a:' + gid]) return;
+      if (!(remote && remote[gid]) || (AL[gid].until && now > AL[gid].until)) { delete AL[gid]; changed = true; }
+    });
+    if (changed) persist();
+    return added;
+  }
+
+  /* ---------- フレンドとのトレード（装備・キャラを出す・受け取る） ---------- */
+  // トレードで使うキー：装備は 'kunai:epic:0'、キャラは 'c:widow'
+  function charOfKey(k) { return typeof k === 'string' && k.startsWith('c:') && C.CHARACTERS[k.slice(2)] ? k.slice(2) : null; }
+  function validTradeKey(k) { return !!charOfKey(k) || !!parseKey(k); }
+  /** キャラのレベルを1に戻して、使ったコインとエッセンスを返す */
+  function resetCharLevel(c) {
+    const lv = charLevel(c);
+    delete save.charLv[c];
+    let coins = 0, essence = 0;
+    for (let n = 1; n < lv; n++) { coins += CL.coins(n); essence += CL.essence(n); }
+    save.coins += coins; save.essence += essence;
+    return { coins, essence };
+  }
+  /** トレードに出せるか：持っていて、装備中の武器の最後の1つでない（キャラは持っていれば出せる） */
+  function canGive(key) {
+    const c = charOfKey(key);
+    if (c) return (save.chars[c] || 0) > 0;
+    const p = parseKey(key);
+    if (!p || !(save.inventory[p.key] > 0)) return false;
+    return !(p.slot === 'weapon' && save.equipped.weapon === p.key && save.inventory[p.key] <= 1);
+  }
+  /**
+   * 1つ手放す。最後の1つならレベルを戻し（装備：設計図とコイン／キャラ：コインとエッセンスが戻る）、
+   * 装備していれば外す（使っているキャラなら「キャラなし」になる）
+   */
+  function takeItem(key) {
+    if (!canGive(key)) return false;
+    const c = charOfKey(key);
+    if (c) {
+      save.chars[c]--;
+      if (save.chars[c] <= 0) {
+        delete save.chars[c];
+        resetCharLevel(c);
+        if (save.char === c) save.char = null;
+      }
+      return true;
+    }
+    const p = parseKey(key);
+    save.inventory[p.key]--;
+    if (save.inventory[p.key] <= 0) {
+      delete save.inventory[p.key];
+      resetLevel(p.key, true);
+      if (save.equipped[p.slot] === p.key) save.equipped[p.slot] = null;
+    }
+    return true;
+  }
+  /** 1つもらう（装備は合成段階もそのまま。キャラは1体増える） */
+  function putItem(key) {
+    const c = charOfKey(key);
+    if (c) {
+      save.chars[c] = (save.chars[c] || 0) + 1;
+      const r = C.CHARACTERS[c].rarity;
+      if (r === 'legend' || r === 'legendPlus') save.flags.gotLegendChar = true;
+      if (r === 'legendPlus') save.flags.gotLegendPlusChar = true;
+      return true;
+    }
+    const p = parseKey(key);
+    if (!p) return false;
+    save.inventory[p.key] = (save.inventory[p.key] || 0) + 1;
+    noteItem(p.rarity);
+    return true;
   }
 
   // ---------- 7日間限定ミッション ----------
@@ -837,6 +1000,14 @@
     persist();
     return got;
   }
+  /** ミニゲームの結果を記録する（win：勝った・引き分けで勝者に入っていた） */
+  function recordMinigame(game, win) {
+    const st = save.stats;
+    st.mgPlay++;
+    if (st['mgP_' + game] != null) st['mgP_' + game]++;
+    if (win) { st.mgWin++; if (st['mgW_' + game] != null) st['mgW_' + game]++; }
+    persist();
+  }
   /* ---------- ミッション（1回きり・何度でも） ---------- */
   const missionsUnlocked = () => progress() >= C.MISSION_UNLOCK;
   function setCodeIssued() { if (!save.flags.codeIssued) { save.flags.codeIssued = true; persist(); } }
@@ -847,6 +1018,13 @@
       case 'levelUps': return st.levelUps;
       case 'fuses': return st.fuses;
       case 'charsGot': return st.charsGot;
+      case 'stage': return progress() + 1;
+      case 'accountLv': return accountInfo().lv;
+      case 'pulls': return st.itemPulls + st.charPulls;
+      case 'charLevelUps': return st.charLevelUps;
+      case 'shopBuys': return st.shopBuys;
+      case 'mgPlay': return st.mgPlay;
+      case 'mgWin': return st.mgWin;
       default: return f[a.check] ? 1 : 0;
     }
   }
@@ -1008,9 +1186,10 @@
     addRandomBlueprints, grantReward, toolCount, useTool, dropRow,
     startLimited, touchLogin, limitedInfo, claimLimited, claimLimitedMilestone, dayKey,
     canFuse, fuse, fuseAll, fusibleList, fuseInfo, bestLoadout, equipBest,
-    accountInfo, presentList, presentCount, presentsVisible, claimPresent,
+    accountInfo, presentList, presentCount, presentsVisible, claimPresent, syncGifts, syncGiftsAll, cleanGift, TICKET_KINDS,
+    canGive, takeItem, putItem, validTradeKey, charOfKey,
     addChar, setChar, setLook, charInfo, charList, charGachaUnlocked, useTicket,
-    progress, maxStage, isStageOpen, fullRarity,
+    progress, maxStage, isStageOpen, fullRarity, recordMinigame,
     inventoryList, persist, resetSave, wipeLocal, replaceSave, exportSave, normalize,
     recordMatch, missionStatus, claimMission,
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
