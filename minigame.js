@@ -286,7 +286,11 @@
         if (this.isHost) this.session.on('left', this.onLeft);
       }
       this.bindInput();
-      this._offSet = DS.settings ? DS.settings.onChange(() => this.applyLayout()) : null;
+      this._lite = !!(DS.settings && DS.settings.lite());
+      this._offSet = DS.settings ? DS.settings.onChange(() => {
+        const l = !!(DS.settings && DS.settings.lite());
+        if (this._lite !== l) { this._lite = l; this.resize(); } else this.applyLayout();
+      }) : null;
       this.applyLayout();
       if (DS.sound) DS.sound.bgm('battle');
       this.el.loading.remove();
@@ -295,7 +299,7 @@
     }
     resize() {
       const r = this.root.getBoundingClientRect();
-      this.renderer.resize(r.width, r.height, Math.min(2, window.devicePixelRatio || 1));
+      this.renderer.resize(r.width, r.height, DS.settings ? DS.settings.dpr() : Math.min(2, window.devicePixelRatio || 1));
       this.applyLayout();
     }
     applyLayout() {
@@ -420,7 +424,9 @@
       const dt = Math.min(0.05, now - (this.lastT || now));
       this.lastT = now;
       if (this.isHost) this.hostTick(dt, ts); else this.guestTick(dt, ts);
-      if (this.view) { this.update(dt); this.draw(now); this.hud(); }
+      // 軽量化モード：描くのは2回に1回（1秒30コマ）
+      this._fc = (this._fc || 0) + 1;
+      if (this.view) { this.update(dt); if (!this._lite || this._fc % 2 === 0) { this.draw(now); this.hud(); } }
       this.raf = requestAnimationFrame(this.frame);
     }
     hostTick(dt, ts) {

@@ -27,6 +27,7 @@
     return s;
   }
   const PHASE_LABEL = { warp: 'まもなくワープ', intro: 'まもなくボス', boss: 'BOSS' };
+  const isLite = () => !!(DS.settings && DS.settings.lite());
 
   const mmss = (t) => { t = Math.max(0, Math.floor(t)); return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); };
   const parseBuild = (str) => {
@@ -141,7 +142,12 @@
         if (this.isHost) this.session.on('left', this.onLeft);
       }
       this.bindInput();
-      this._offSet = DS.settings ? DS.settings.onChange(() => this.applyLayout()) : null;
+      this._lite = isLite();
+      this._offSet = DS.settings ? DS.settings.onChange(() => {
+        // 軽量化モードが変わったら、画面の細かさから作り直す
+        if (this._lite !== isLite()) { this._lite = isLite(); this.renderer.lite = this._lite; this.resize(); } else this.applyLayout();
+      }) : null;
+      this.renderer.lite = this._lite;
       this.applyLayout();
       if (DS.sound) DS.sound.bgm('battle');
       this.el.loading.remove();
@@ -152,7 +158,7 @@
 
     resize() {
       const r = this.root.getBoundingClientRect();
-      this.renderer.resize(r.width, r.height, Math.min(2, window.devicePixelRatio || 1));
+      this.renderer.resize(r.width, r.height, DS.settings ? DS.settings.dpr() : Math.min(2, window.devicePixelRatio || 1));
       this.applyLayout();
     }
     /** 設定（ボタンの大きさと配置）を画面に反映 */
@@ -268,7 +274,9 @@
       const dt = Math.min(0.05, now - (this.lastT || now));
       this.lastT = now;
       const view = this.isHost ? this.hostTick(dt, ts) : this.guestTick(dt, ts);
-      if (view) this.draw(view, now);
+      // 軽量化モード：描くのは2回に1回（1秒30コマ）。計算と操作は毎回
+      this._fc = (this._fc || 0) + 1;
+      if (view && (!this._lite || this._fc % 2 === 0)) this.draw(view, now);
       this.raf = requestAnimationFrame(this.frame);
     }
     hostTick(dt, ts) {
@@ -421,7 +429,7 @@
       const v = Object.assign({}, view, { P });
       this.renderer.draw(v, this.me, now, this.selfId, this.names);
       this.mapTick = (this.mapTick || 0) + 1;
-      if (this.mapTick % 3 === 0) this.renderer.drawMinimap(this.el.map, v, this.me, this.selfId, this.renderer.halfView);
+      if (this.mapTick % (this._lite ? 4 : 3) === 0) this.renderer.drawMinimap(this.el.map, v, this.me, this.selfId, this.renderer.halfView);
       this.hud(v);
     }
     hud(v) {

@@ -2247,3 +2247,18 @@ html:not(.ready) #app { visibility: hidden; }
 .bt-banner.low { top: 70%; }
 .bt-count.big { top: calc(var(--safe-t) + 172px); }
 .bt-count.big b { font-size: 56px; }
+
+/* =========================================================
+ *  v16：軽量化モード（設定 → 軽量化モード ON）
+ *  ずっと動き続ける飾りのアニメーション（回る光・キラキラ・ふわふわ）を止めて、重い影やぼかしを減らす
+ * ========================================================= */
+html.lite *, html.lite *::before, html.lite *::after { animation-iteration-count: 1 !important; }
+html.lite .r-epic::before, html.lite .r-legend::before, html.lite .r-legendPlus::before, html.lite .r-mythic::before,
+html.lite .icard-aura, html.lite .icard-rays, html.lite .icard-shine, html.lite .chest-rays,
+html.lite .gacha-chest, html.lite .equip-hero .hero-art, html.lite .equip-hero-art, html.lite .gacha-chars span, html.lite .icard.cf-big,
+html.lite #btn-create, html.lite .gacha-btn.ticket, html.lite .btn.pulse, html.lite .lm-btn .side-ic, html.lite #btn-present.has .side-ic,
+html.lite .icard.fz3, html.lite .icard-bolts, html.lite .icard-bolts path { animation: none !important; }
+html.lite .icard-bolts path { filter: none !important; }
+html.lite .icard .item-art, html.lite .fz3 .item-art { filter: none !important; }
+html.lite .rl-cell.hit svg { animation: rlHit .45s ease-in-out 4 alternate !important; }
+html.lite .set-seg.lite-seg .seg-btn.active[data-lite="1"] { background: linear-gradient(#45d26a, #1f9c48); }

@@ -215,9 +215,13 @@
       for (const h of view.CH || []) {
         if (h[1] < L - 90 || h[1] > R + 90 || h[2] < T - 90 || h[2] > B + 90) continue;
         const bob = Math.sin(now * 3 + h[0]) * 4, pl = 0.5 + 0.5 * Math.sin(now * 5);
-        const g = c.createRadialGradient(h[1], h[2], 6, h[1], h[2], 70);
-        g.addColorStop(0, `rgba(255,240,150,${0.55 + 0.25 * pl})`); g.addColorStop(1, 'rgba(255,210,61,0)');
-        c.fillStyle = g; c.beginPath(); c.arc(h[1], h[2], 70, 0, TAU); c.fill();
+        if (this.lite) { c.fillStyle = `rgba(255,230,120,${0.25 + 0.15 * pl})`; }
+        else {
+          const g = c.createRadialGradient(h[1], h[2], 6, h[1], h[2], 70);
+          g.addColorStop(0, `rgba(255,240,150,${0.55 + 0.25 * pl})`); g.addColorStop(1, 'rgba(255,210,61,0)');
+          c.fillStyle = g;
+        }
+        c.beginPath(); c.arc(h[1], h[2], 70, 0, TAU); c.fill();
         c.strokeStyle = `rgba(255,214,90,${0.6 + 0.4 * pl})`; c.lineWidth = 4; c.setLineDash([10, 8]);
         c.beginPath(); c.arc(h[1], h[2] + 6, 46, now * 0.8, now * 0.8 + TAU); c.stroke(); c.setLineDash([]);
         if (this.sp.chest) c.drawImage(this.sp.chest, h[1] - 44, h[2] - 46 + bob, 88, 76);
@@ -285,9 +289,12 @@
         // 自分の近くで起きたことだけ音を鳴らす
         if (DS.sound && SND[f[1]] && Math.abs(f[2] - cam.x) < hv.vw + 80 && Math.abs(f[3] - cam.y) < hv.vh + 80) DS.sound.play(SND[f[1]]);
       }
+      let kills = 0;
       for (const [id, v] of this.seenFx) {
         const age = now - v.t0;
         if (age > 1.4) { this.seenFx.delete(id); continue; }
+        // 軽量化モード：倒したときの輪は、たくさんあるときは省く
+        if (this.lite && v.f[1] === 2 && ++kills > 24) continue;
         this.drawFx(v.f, age, view.P);
       }
 
@@ -565,7 +572,7 @@
       if (buff & 8) { // 鎧のシールド（青白い六角形のバリア）
         const t = performance.now() / 1000;
         c.save();
-        c.shadowColor = 'rgba(170,225,255,.95)'; c.shadowBlur = 14;
+        if (!this.lite) { c.shadowColor = 'rgba(170,225,255,.95)'; c.shadowBlur = 14; }   // 軽量化モードでは光のぼかしをしない
         c.strokeStyle = `rgba(225,245,255,${0.7 + 0.25 * Math.sin(t * 4)})`; c.lineWidth = 3.5;
         c.beginPath();
         for (let i = 0; i < 6; i++) { const a = i * TAU / 6 + t * 0.6; const px = x + Math.cos(a) * 44, py = y - 12 + Math.sin(a) * 44; if (i) c.lineTo(px, py); else c.moveTo(px, py); }

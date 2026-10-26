@@ -12,6 +12,7 @@
     joyMode: 'float', joySize: 100, joyX: 0.24, joyY: 0.8,   // float: 触った場所に出る / fixed: 決まった場所
     mapSize: 100,
     hurtFlash: true,
+    lite: false,        // 軽量化モード（画面を少し粗くして、動き続ける飾りやエフェクトを減らす）
   };
   const listeners = new Set();
   let cur = load();
@@ -19,8 +20,11 @@
   function load() {
     try { return Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { return Object.assign({}, DEFAULTS); }
   }
+  /** 軽量化モードを画面（CSS）に反映 */
+  function applyLite() { document.documentElement.classList.toggle('lite', !!cur.lite); }
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(cur)); } catch (e) { /* noop */ }
+    applyLite();
     if (DS.sound) { DS.sound.setVolume(cur.bgm, cur.se); DS.sound.setBgmOn(cur.bgmOn); }
     listeners.forEach((f) => f(cur));
   }
@@ -44,6 +48,10 @@
         ${slider('bgm', 'BGMの音量', 0, 100, 5)}
         ${slider('se', '効果音', 0, 100, 5)}
         <p class="note dark">音は最初に画面をタップしたときから鳴ります。鳴らないときは、端末の音量と、ほかのアプリで音楽を流していないかを確認してください。</p>
+        <h3 class="sub-head">軽量化モード</h3>
+        <div class="set-row bgm-row"><span>軽量化モード</span>
+          <div class="seg set-seg bgm-seg lite-seg"><button class="seg-btn" data-lite="1">ON</button><button class="seg-btn" data-lite="0">OFF</button></div></div>
+        <p class="note dark">ONにすると、バトル画面を少し粗く・1秒30コマで描き、ずっと動き続ける飾りのアニメーション（キラキラ・回る光など）を止めます。スマホが熱くなる・カクカクする・電池の減りが早いときにおすすめです。</p>
         <h3 class="sub-head">操作とバトル画面の配置</h3>
         <div class="set-layout">
           <div class="layout-col">
@@ -82,6 +90,11 @@
     });
     $$('[data-joy]', el).forEach((b) => b.addEventListener('click', () => { set('joyMode', b.dataset.joy); sync(); }));
     $$('[data-bgm]', el).forEach((b) => b.addEventListener('click', () => { set('bgmOn', b.dataset.bgm === '1'); sync(); }));
+    $$('[data-lite]', el).forEach((b) => b.addEventListener('click', () => {
+      const on = b.dataset.lite === '1';
+      if (on !== !!cur.lite) { set('lite', on); toast(on ? '軽量化モードをONにしました' : '軽量化モードをOFFにしました', 'good'); }
+      sync();
+    }));
     $('#hurtFlash', el).addEventListener('change', (e) => set('hurtFlash', e.target.checked));
 
     // ---- 配置のプレビュー（実際の画面と同じ縦横比） ----
@@ -122,6 +135,7 @@
       Object.keys(units).forEach((kk) => { $('#' + kk, el).value = cur[kk]; $('#' + kk + '-v', el).textContent = cur[kk] + units[kk]; });
       $$('[data-joy]', el).forEach((b) => b.classList.toggle('active', b.dataset.joy === cur.joyMode));
       $$('[data-bgm]', el).forEach((b) => b.classList.toggle('active', (b.dataset.bgm === '1') === !!cur.bgmOn));
+      $$('[data-lite]', el).forEach((b) => b.classList.toggle('active', (b.dataset.lite === '1') === !!cur.lite));
       $('#bgm', el).closest('.set-row').classList.toggle('dim', !cur.bgmOn);
       $('#hurtFlash', el).checked = cur.hurtFlash;
       drawLayout();
@@ -130,5 +144,10 @@
   }
 
   if (DS.sound) { DS.sound.setVolume(cur.bgm, cur.se); DS.sound.setBgmOn(cur.bgmOn); }
-  DS.settings = { get: () => cur, set, open, onChange: (f) => { listeners.add(f); return () => listeners.delete(f); }, DEFAULTS };
+  applyLite();
+  /** 軽量化モードか */
+  const lite = () => !!cur.lite;
+  /** 画面の細かさ（軽量化モードなら1倍、ふだんは端末に合わせて最大2倍） */
+  const dpr = () => (cur.lite ? 1 : Math.min(2, window.devicePixelRatio || 1));
+  DS.settings = { get: () => cur, set, open, onChange: (f) => { listeners.add(f); return () => listeners.delete(f); }, DEFAULTS, lite, dpr };
 })();
