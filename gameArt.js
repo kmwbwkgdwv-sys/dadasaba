@@ -770,6 +770,20 @@
     expand: () => box(`<circle cx="21" cy="21" r="10" fill="#bff0ff" stroke="${O}" stroke-width="2.6"/><path d="M28 28 L37 37" stroke="${O}" stroke-width="4.5" stroke-linecap="round"/>`
       + `<path d="M17 21 H25 M21 17 V25" stroke="#2f7bf0" stroke-width="2.8" stroke-linecap="round"/>`
       + `<path d="M7 13 V7 H13 M35 7 H41 V13 M7 35 V41 H13" fill="none" stroke="#2f7bf0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`, '#d6f3ff'),
+    // v17 ロケット：赤い先っぽの白いロケットと炎
+    rocket: () => box(`<g transform="rotate(-45 24 24)"><path d="M10 24 L4 22 L4 26 Z" fill="#ffb02e"/><path d="M12 19 L12 29 L7 33 L9 24 L7 15 Z" fill="#e8394d" stroke="${O}" stroke-width="2.2" stroke-linejoin="round"/>`
+      + `<path d="M12 19 L30 19 Q40 20 43 24 Q40 28 30 29 L12 29 Z" fill="#f4f1ff" stroke="${O}" stroke-width="2.4" stroke-linejoin="round"/><path d="M30 19 Q40 20 43 24 Q40 28 30 29 Z" fill="#e8394d" stroke="${O}" stroke-width="2.2" stroke-linejoin="round"/>`
+      + `<circle cx="21" cy="24" r="3.2" fill="#5ec8ff" stroke="${O}" stroke-width="2"/></g>`, '#ffd9b8'),
+    // v17 楽器：ギターと音符
+    music: () => box(`<path d="M33 9 L37 13 L27 23" fill="none" stroke="${O}" stroke-width="3.4" stroke-linecap="round"/><path d="M33 9 L37 13" stroke="#c9883a" stroke-width="2"/>`
+      + `<path d="M24 20 Q28 24 26 28 Q30 34 24 38 Q18 42 13 37 Q8 32 12 26 Q15 21 20 23 Q21 19 24 20 Z" fill="#ff8a3d" stroke="${O}" stroke-width="2.4" stroke-linejoin="round"/>`
+      + `<circle cx="19" cy="31" r="3" fill="${O}"/><path d="M24 27 L29 22" stroke="#fff3c2" stroke-width="1.6"/>`
+      + `<text x="36" y="38" font-size="12" font-weight="900" text-anchor="middle" fill="#ff4f9a" stroke="${O}" stroke-width="0.8">♪</text>`, '#ffd6ee'),
+    // v17 ガス注入：ガスボンベと速さの線
+    gas: () => box(`<rect x="17" y="13" width="14" height="26" rx="6" fill="#4fd1a0" stroke="${O}" stroke-width="2.6"/><rect x="21" y="8" width="6" height="6" rx="1.5" fill="#c9c3e6" stroke="${O}" stroke-width="2"/>`
+      + `<path d="M20 22 H28 M20 27 H28" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>`
+      + `<path d="M6 18 H13 M4 24 H13 M6 30 H13" stroke="#2f7bf0" stroke-width="2.6" stroke-linecap="round"/>`
+      + `<path d="M34 20 L41 24 L34 28" fill="none" stroke="#ff4f9a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`, '#d7fff0'),
     heal: () => box(`<path d="M24 38 Q10 28 10 19 Q10 11 17 11 Q22 11 24 16 Q26 11 31 11 Q38 11 38 19 Q38 28 24 38 Z" fill="#ff5a6a" stroke="${O}" stroke-width="2.6" stroke-linejoin="round"/>`, '#ffd6dc'),
   };
   DS.art.skillIcon = (key) => (ICON[key] ? ICON[key]() : '');

@@ -97,16 +97,16 @@
     <input id="title" maxlength="40" value="運営からのプレゼント">
     <label for="text">メッセージ（なくてもOK）</label>
     <textarea id="text" maxlength="300" placeholder="いつも遊んでくれてありがとう！"></textarea>
-    <label for="coins">コイン</label>
-    <input id="coins" inputmode="numeric" placeholder="10000" value="">
-    <details style="margin-top:8px"><summary style="font-size:13px;font-weight:800">チケットも送る</summary>
-      <div class="tk-grid">
-        <div><label for="tk-item10">装備ガチャ10連チケット</label><input id="tk-item10" inputmode="numeric" placeholder="0"></div>
-        <div><label for="tk-char10">キャラガチャ10連チケット</label><input id="tk-char10" inputmode="numeric" placeholder="0"></div>
-        <div><label for="tk-epic1">エピック確定チケット</label><input id="tk-epic1" inputmode="numeric" placeholder="0"></div>
-        <div><label for="tk-s1">S装備確定チケット</label><input id="tk-s1" inputmode="numeric" placeholder="0"></div>
-      </div>
-    </details>
+    <p class="note" style="margin-top:10px"><b>送るもの</b>（送りたいものだけ数を入れる。空や0は送りません）</p>
+    <div class="tk-grid">
+      <div><label for="coins">コイン</label><input id="coins" inputmode="numeric" placeholder="0"></div>
+      <div><label for="bp">ランダム設計図（枚）</label><input id="bp" inputmode="numeric" placeholder="0"></div>
+      <div><label for="essence">エナジーエッセンス</label><input id="essence" inputmode="numeric" placeholder="0"></div>
+      <div><label for="tk-item10">装備ガチャ10連チケット</label><input id="tk-item10" inputmode="numeric" placeholder="0"></div>
+      <div><label for="tk-char10">キャラガチャ10連チケット</label><input id="tk-char10" inputmode="numeric" placeholder="0"></div>
+      <div><label for="tk-epic1">エピック確定ガチャチケット</label><input id="tk-epic1" inputmode="numeric" placeholder="0"></div>
+      <div><label for="tk-s1">S確定ガチャチケット</label><input id="tk-s1" inputmode="numeric" placeholder="0"></div>
+    </div>
     <button class="main" id="btn-send">送る</button>
     <p class="note">送り先のプレイヤーIDが合っているかは、こちらでは確かめられません。間違えると届きません。<br>相手がゲームを開くと（数分以内に）プレゼントボックスに届きます。<br>全てのプレイヤーに送ったものは、引き継ぎコードを発行している人のプレゼントボックスに届きます（1人1回）。</p>
     <p class="result" id="send-msg"></p>
@@ -132,7 +132,7 @@
   const cleanId = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const fmtId = (id) => id.slice(0, 4) + '-' + id.slice(4);
   const fmt = (n) => Number(n || 0).toLocaleString('ja-JP');
-  const TICKETS = { item10: '装備ガチャ10連チケット', char10: 'キャラガチャ10連チケット', epic1: 'エピック確定チケット', s1: 'S装備確定チケット' };
+  const TICKETS = { item10: '装備ガチャ10連チケット', char10: 'キャラガチャ10連チケット', epic1: 'エピック確定ガチャチケット', s1: 'S確定ガチャチケット' };
   // ゲーム（cloud.js）と同じ作り方
   const emailOf = (id) => id.toLowerCase() + '@' + CL.emailDomain;
   const passOf = (id, pin) => 'sa-' + pin + '-' + id;
@@ -345,17 +345,22 @@
     if (bad.length) { msg.innerHTML = '<span class="bad">プレイヤーIDは8文字です：' + esc(bad.join(', ')) + '</span>'; return; }
     const coins = num($('#coins').value);
     if (coins > 100000000) { msg.innerHTML = '<span class="bad">コインは1回 1億枚までです</span>'; return; }
+    const bp = num($('#bp').value), essence = num($('#essence').value);
+    if (bp > 99999) { msg.innerHTML = '<span class="bad">ランダム設計図は1回 99,999枚までです</span>'; return; }
+    if (essence > 9999999) { msg.innerHTML = '<span class="bad">エナジーエッセンスは1回 999万9,999までです</span>'; return; }
     const tickets = {};
     Object.keys(TICKETS).forEach((k) => { const n = Math.min(999, num($('#tk-' + k).value)); if (n) tickets[k] = n; });
-    if (!coins && !Object.keys(tickets).length) { msg.innerHTML = '<span class="bad">コインかチケットの数を入れてください</span>'; return; }
+    if (!coins && !bp && !essence && !Object.keys(tickets).length) { msg.innerHTML = '<span class="bad">送るものの数を入れてください</span>'; return; }
     const title = $('#title').value.trim().slice(0, 40) || '運営からのプレゼント';
     const text = $('#text').value.trim().slice(0, 300);
-    const what = [coins ? 'コイン ' + fmt(coins) : ''].concat(Object.keys(tickets).map((k) => TICKETS[k] + ' ×' + tickets[k])).filter(Boolean).join('、');
+    const what = whatOf({ coins, bp, essence, tickets });
     const days = toAll ? Number($('#until').value) || 0 : 0;
     if (toAll) {
       if (!confirm('【全てのプレイヤー】に送ります。\n\n' + what + '\n\n期限：' + (days ? days + '日' : 'なし（取り消すまで）') + '\n\nよろしいですか？')) return;
       const btn = $('#btn-send'); btn.disabled = true; btn.textContent = '送信中…';
       const g = { title, text, coins, at: { '.sv': 'timestamp' } };
+      if (bp) g.bp = bp;
+      if (essence) g.essence = essence;
       if (Object.keys(tickets).length) g.tickets = tickets;
       if (days) g.until = Date.now() + days * 86400000;
       try { await db('POST', 'giftsAll', g); msg.textContent = '✓ 全てのプレイヤーに送りました'; addRecent('ALL', title, what); }
@@ -369,6 +374,8 @@
     const lines = [];
     for (const id of ids) {
       const g = { title, text, coins, at: { '.sv': 'timestamp' } };
+      if (bp) g.bp = bp;
+      if (essence) g.essence = essence;
       if (Object.keys(tickets).length) g.tickets = tickets;
       try { await db('POST', 'gifts/' + id.toLowerCase(), g); lines.push('✓ ' + fmtId(id)); addRecent(id, title, what); }
       catch (e) { lines.push('✗ ' + fmtId(id) + '：' + (e.code === 'denied' ? '断られました（ルールの設定を確認）' : e.message)); }
@@ -393,7 +400,8 @@
   }
   $('#h-id').addEventListener('input', (e) => { const v = cleanId(e.target.value).slice(0, 8); e.target.value = v.length > 4 ? v.slice(0, 4) + '-' + v.slice(4) : v; });
   $('#btn-hist').addEventListener('click', loadHist);
-  const whatOf = (g) => [g.coins ? 'コイン ' + fmt(g.coins) : ''].concat(Object.keys(g.tickets || {}).map((k) => (TICKETS[k] || k) + ' ×' + g.tickets[k])).filter(Boolean).join('、');
+  const whatOf = (g) => [g.coins ? 'コイン ' + fmt(g.coins) : '', g.bp ? 'ランダム設計図 ×' + fmt(g.bp) : '', g.essence ? 'エナジーエッセンス ' + fmt(g.essence) : '']
+    .concat(Object.keys(g.tickets || {}).map((k) => (TICKETS[k] || k) + ' ×' + g.tickets[k])).filter(Boolean).join('、');
   const whenOf = (t) => (t ? new Date(t).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
   /** 全てのプレイヤーへのプレゼント（受け取った人数つき） */
   async function loadAll() {
@@ -429,7 +437,7 @@
     const list = Object.keys(d).map((gid) => Object.assign({ gid }, d[gid])).sort((a, b) => (b.at || 0) - (a.at || 0));
     if (!list.length) { box.innerHTML = '<p class="note">' + esc(fmtId(id)) + ' に送ったプレゼントはありません</p>'; return; }
     box.innerHTML = list.map((g) => {
-      const what = [g.coins ? 'コイン ' + fmt(g.coins) : ''].concat(Object.keys(g.tickets || {}).map((k) => (TICKETS[k] || k) + ' ×' + g.tickets[k])).filter(Boolean).join('、');
+      const what = whatOf(g);
       const when = g.at ? new Date(g.at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
       return `<div class="gift"><div class="t"><b>${esc(g.title || '')}</b><small>${esc(what)}　${esc(when)}</small><br>
         ${g.claimed ? '<span class="chip done">受け取り済み</span>' : '<span class="chip wait">まだ受け取っていない</span>'}</div>

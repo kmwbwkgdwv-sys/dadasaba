@@ -14,6 +14,8 @@
   const TOOLBOX = '<svg viewBox="0 0 48 48" aria-hidden="true"><rect x="1.5" y="1.5" width="45" height="45" rx="11" fill="#d9f2ff" stroke="#231a3a" stroke-width="3"/><path d="M18 17 V12 Q18 9 21 9 H27 Q30 9 30 12 V17" fill="none" stroke="#231a3a" stroke-width="3"/><rect x="7" y="16" width="34" height="23" rx="4" fill="#ff7a59" stroke="#231a3a" stroke-width="2.6"/><path d="M7 25 H41" stroke="#231a3a" stroke-width="2.4"/><rect x="20" y="22" width="8" height="7" rx="2" fill="#ffd34d" stroke="#231a3a" stroke-width="2"/></svg>';
 
   let stageIndex = 0;
+  // スキル一覧（本と星）
+  const BOOK = '<svg viewBox="0 0 48 48" aria-hidden="true"><rect x="1.5" y="1.5" width="45" height="45" rx="11" fill="#e6dcff" stroke="#231a3a" stroke-width="3"/><path d="M10 12 Q17 9 24 13 Q31 9 38 12 V37 Q31 34 24 38 Q17 34 10 37 Z" fill="#fff8ea" stroke="#231a3a" stroke-width="2.6" stroke-linejoin="round"/><path d="M24 13 V38" stroke="#231a3a" stroke-width="2.2"/><path d="M17 17 l1.6 3.4 3.6.4 -2.7 2.4 .8 3.6 -3.3-1.9 -3.3 1.9 .8-3.6 -2.7-2.4 3.6-.4 Z" fill="#ffd23d" stroke="#231a3a" stroke-width="1.4" stroke-linejoin="round"/><path d="M27 19 H34 M27 24 H34 M27 29 H32" stroke="#8a7cc0" stroke-width="2.2" stroke-linecap="round"/></svg>';
   const LOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="12" rx="3" fill="#ffd23d" stroke="#231a3a" stroke-width="2.2"/><path d="M8 10 V7 a4 4 0 0 1 8 0 V10" fill="none" stroke="#231a3a" stroke-width="2.6"/><circle cx="12" cy="15.5" r="2" fill="#231a3a"/></svg>';
   let session = null;
   let roomPassword = '';
@@ -68,7 +70,7 @@
           <div class="game-logo">
             <span class="logo-main outline">${esc(C.GAME_TITLE).replace(' ', '<br>')}</span>
             <span class="logo-sub">${esc(C.GAME_SUBTITLE)}</span>
-            <button class="rank-btn" id="btn-ranking">${DS.record.TROPHY}<span>ランキング</span></button>
+            <span class="logo-btns"><button class="rank-btn" id="btn-ranking">${DS.record.TROPHY}<span>ランキング</span></button><button class="rank-btn sk-btn" id="btn-skills">${BOOK}<span>スキル一覧</span></button></span>
           </div>
           <div class="side-col right-col">
           <button class="side-btn" id="btn-settings" aria-label="設定">
@@ -177,6 +179,7 @@
     $('#btn-settings', el).addEventListener('click', () => DS.settings.open());
     $('#btn-friends', el).addEventListener('click', () => DS.friends.open());
     $('#btn-ranking', el).addEventListener('click', () => DS.record.openRanking());
+    $('#btn-skills', el).addEventListener('click', () => openSkillList());
     updateMissionBadge();
     $('#btn-join', el).addEventListener('click', doJoin);
     $('#join-id', el).addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6); });
@@ -276,6 +279,34 @@
     if (sel) setTimeout(() => sel.scrollIntoView({ block: 'center' }), 50);
   }
 
+  /* ---------- スキル・アビリティ一覧（★1〜赤★1 の強化内容） ---------- */
+  const EVO = GC.EVO_STAR || 6;
+  const starLabel = (n) => (n >= EVO ? '<b class="sk-evo">赤★1</b>' : `<b class="sk-st">${'★'.repeat(n)}</b>`);
+  function openSkillList(tab) {
+    let mode = tab || 'skill';
+    const m = modal({ title: 'スキル・アビリティ一覧', cls: 'modal-wide modal-sk', body: '', buttons: [{ label: 'とじる', cls: 'btn-gray' }] });
+    const draw = () => {
+      const isSkill = mode === 'skill';
+      const defs = isSkill ? GC.SKILLS : GC.ABILITIES;
+      const keys = Object.keys(defs).sort((a, b) => (isSkill ? (defs[b].weapon ? 1 : 0) - (defs[a].weapon ? 1 : 0) : 0));
+      m.body.innerHTML = `
+        <div class="seg sk-seg"><button class="seg-btn ${isSkill ? 'active' : ''}" data-m="skill">スキル（${Object.keys(GC.SKILLS).length}）</button><button class="seg-btn ${!isSkill ? 'active' : ''}" data-m="ability">アビリティ（${Object.keys(GC.ABILITIES).length}）</button></div>
+        <p class="note dark">${isSkill
+          ? `1試合で武器を含めて<b>${GC.SLOTS.skills}つ</b>まで持てます。<b>武器</b>のスキルは、装備している武器のものだけ出ます。★5の次は<b>赤★1（進化）</b>で、いつも発動して大きくパワーアップします。`
+          : `1試合で<b>${GC.SLOTS.abilities}つ</b>まで持てます。★5の次は<b>赤★1</b>（もう1段階）です。`}　名前をタップすると開きます。</p>
+        <div class="sk-list">${keys.map((k, i) => {
+          const d = defs[k];
+          const tag = isSkill ? (d.weapon ? '武器' : 'スキル') : 'アビリティ';
+          return `<details class="sk-item ${isSkill ? (d.weapon ? 'weapon' : 'skill') : 'ability'}" ${i === 0 ? 'open' : ''}>
+            <summary><span class="sk-ic">${A.skillIcon(k)}</span><span class="sk-name"><b>${esc(d.name)}</b><em>${tag}</em></span><i class="sk-open"></i></summary>
+            <table class="sk-tbl">${[1, 2, 3, 4, 5, EVO].map((n) => `<tr class="${n >= EVO ? 'evo' : ''}"><th>${starLabel(n)}</th><td>${esc(d.desc(n)).replace('【進化】', '')}</td></tr>`).join('')}</table>
+          </details>`;
+        }).join('')}</div>`;
+      $$('.sk-seg .seg-btn', m.el).forEach((b) => b.addEventListener('click', () => { mode = b.dataset.m; draw(); m.body.scrollTop = 0; }));
+    };
+    draw();
+  }
+
   /* ---------- 運営からのプレゼント ---------- */
   function updatePresentBadge() {
     const btn = $('#btn-present');
@@ -294,7 +325,9 @@
         <div class="pr-item ${p.claimed ? 'claimed' : ''}">
           <span class="pr-ic">${GIFT}</span>
           <div class="pr-text"><b>${esc(p.title)}</b><small>${esc(p.text || '')}</small>
-            ${p.coins || !Object.keys(p.tickets || {}).length ? `<span class="pr-reward">${A.coin()}コイン ×${fmt(p.coins || 0)}</span>` : ''}
+            ${p.coins || !(Object.keys(p.tickets || {}).length || p.bp || p.essence) ? `<span class="pr-reward">${A.coin()}コイン ×${fmt(p.coins || 0)}</span>` : ''}
+            ${p.bp ? `<span class="pr-reward pr-tk">${DS.mission.rewardChip({ bp: p.bp })}<small>ランダム設計図</small></span>` : ''}
+            ${p.essence ? `<span class="pr-reward pr-tk">${DS.mission.rewardChip({ essence: p.essence })}<small>エナジーエッセンス</small></span>` : ''}
             ${Object.keys(p.tickets || {}).map((k) => `<span class="pr-reward pr-tk">${DS.mission.rewardChip({ ticket: k, ticketN: p.tickets[k] })}</span>`).join('')}
             ${(p.gift || p.allGift) && p.at ? `<span class="pr-date">${new Date(p.at).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })} に届きました${p.until && !p.claimed ? `（${new Date(p.until).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' })} まで）` : ''}</span>` : ''}</div>
           ${p.claimed ? '<span class="pr-done">受け取り済み</span>' : `<button class="btn btn-small btn-pink" data-id="${esc(p.id)}">受け取る</button>`}
@@ -314,7 +347,7 @@
     };
     // チケットが入っていたら、もらったものの画面を（プレゼントボックスの上に）出す
     const showClaimed = (r) => {
-      if (r.got.some((g) => g.ticket)) DS.mission.showGot(r.got, 'プレゼントを受け取りました');
+      if (r.got.some((g) => g.ticket || g.bp || g.essence)) DS.mission.showGot(r.got, 'プレゼントを受け取りました');
       else if (r.coins) { toast(`${fmt(r.coins)} コインを受け取りました！`, 'good'); if (DS.sound) DS.sound.play('gachaOpen'); }
     };
     $$('.pr-item .btn', m.el).forEach((b) => b.addEventListener('click', () => { const r = claim(b.dataset.id); m.close(); openPresents(true); showClaimed(r); }));
@@ -723,7 +756,7 @@
   }
 
   DS.lobby = {
-    render, updateMissionBadge, updatePresentBadge, openStageList, openPresents, joinLobbyById,
+    render, updateMissionBadge, updatePresentBadge, openStageList, openPresents, joinLobbyById, openSkillList,
     inRoom: () => !!session,
     refreshStage: () => { if ($('#stage-track')) { stageIndex = Math.min(stageIndex, C.STAGES.length - 1); updateStage(false); } },
     goToStage: (i) => { if ($('#stage-track')) { stageIndex = i; updateStage(true); } },

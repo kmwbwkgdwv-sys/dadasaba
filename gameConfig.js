@@ -12,6 +12,11 @@ const GC_SP = () => DS.gameConfig.SKILL_PARAMS;
 const GC_EV = () => DS.gameConfig.EVOLVE;
 // 火炎瓶を一度に投げる数（★2・★4・赤★1 で1本ずつ増える）
 const molotovN = (s) => GC_SP().molotov.bottles + GC_SP().molotov.moreAt.filter((n) => s >= n).length;
+// v17：ロケットの数（★3・★5 で1発ずつ増える。赤★1 は EVOLVE の数）
+const rocketN = (s) => (s >= 6 ? GC_EV().rocket.count : GC_SP().rocket.count + GC_SP().rocket.moreAt.filter((n) => s >= n).length);
+// v17：楽器のバフ（★ごと）。atk：攻撃+% / cut：受けるダメージ-% / regen：毎秒HP回復% / spd：攻撃速度+%
+const musicR = (s) => Math.round((GC_SP().music.r + GC_SP().music.rStep * (Math.min(6, s) - 1)) * (s >= 6 ? GC_EV().music.r : 1) / 20 * 10) / 10;   // 広場の広さ（人分）
+const musicBuffText = (s) => { const b = GC_SP().music.buffs[Math.min(6, s)] || {}; return [`攻撃+${b.atk}%`, b.cut ? `受けるダメージ-${b.cut}%` : '', b.regen ? `毎秒HP${b.regen}%回復` : '', b.spd ? `攻撃速度+${b.spd}%` : ''].filter(Boolean).join('・'); };
 
 DS.gameConfig = {
   // ---- 試合の流れ ----
@@ -311,6 +316,10 @@ DS.gameConfig = {
       : `画面の端で跳ね返るボール（★ごとに大きく速くなる、ATK×${GC_SP().soccer.dmg}）`) },
     molotov:  { name: '火炎瓶',       desc: (s) => (s >= 6 ? `【進化】${GC_EV().molotov.cd}秒ごとに火炎瓶を${molotovN(s)}つ投げ続ける（範囲${s + 1}人分、毎秒ATK×${(GC_SP().molotov.dps + GC_SP().molotov.dpsStep * 5).toFixed(2)}）`
       : `火炎瓶を${molotovN(s)}つ投げて炎を残す（範囲${s + 1}人分、毎秒ATK×${(GC_SP().molotov.dps + GC_SP().molotov.dpsStep * (s - 1)).toFixed(2)}）`) },
+    rocket:   { name: 'ロケット',     desc: (s) => (s >= 6 ? `【進化】${GC_EV().rocket.cd}秒ごとにロケットを${rocketN(s)}発撃ち続ける。大きな爆発でまわりの敵にATK×${(GC_SP().rocket.dmg + GC_SP().rocket.dmgStep * 5).toFixed(1)}（爆発の大きさ${Math.round((GC_SP().rocket.r + GC_SP().rocket.rStep * 5) * GC_EV().rocket.scale / 20 * 10) / 10}人分）`
+      : `${GC_SP().rocket.cd}秒ごとに近くの敵へロケットを${rocketN(s)}発撃つ。当たると爆発してまわりの敵にATK×${(GC_SP().rocket.dmg + GC_SP().rocket.dmgStep * (s - 1)).toFixed(1)}（爆発の大きさ${Math.round((GC_SP().rocket.r + GC_SP().rocket.rStep * (s - 1)) / 20 * 10) / 10}人分）`) },
+    music:    { name: '楽器',         desc: (s) => (s >= 6 ? `【進化】その場に大きな音楽の広場を作る（範囲${musicR(6)}人分）。中にいる味方全員：${musicBuffText(6)}（ダメージはなし）`
+      : `その場に音楽の広場を作る（範囲${musicR(s)}人分・${GC_SP().music.cd}秒ごとに置き直す）。中にいる味方全員：${musicBuffText(s)}（ダメージはなし・重ならない）`) },
     gravity:  { name: '重力発生機',   desc: (s) => (s >= 6 ? `【進化】範囲${Math.round(GC_EV().gravity.r * 100)}%の重力で敵を90%遅くし、毎秒ATK×${((GC_SP().gravity.dps + GC_SP().gravity.dpsStep * 5) * GC_EV().gravity.dps).toFixed(2)}`
       : `周りの敵を${Math.round(Math.min(0.9, 0.5 + 0.1 * (s - 1)) * 100)}%遅くし、毎秒ATK×${(GC_SP().gravity.dps + GC_SP().gravity.dpsStep * (s - 1)).toFixed(2)}`) },
   },
@@ -335,6 +344,12 @@ DS.gameConfig = {
     // 火炎瓶：投げる数は bottles 本。★2・★4・赤★1 で1本ずつ増える（2 → 3 → 4 → 5本）
     molotov:  { cd: 4, bottles: 2, moreAt: [2, 4, 6], r: 40, rStep: 20, time: 3, dps: 0.7, dpsStep: 0.23, throwDist: 230 },
     gravity:  { r: 150, dps: 0.23, dpsStep: 0.23, slow: 0.5, slowStep: 0.1 },
+    // v17 ロケット：cd 秒ごとに count 発（★3・★5 で1発ずつ増える）。爆発 ATK×dmg（★ごとに dmgStep）、爆発の半径 r（★ごとに rStep）
+    rocket:   { cd: 3, count: 1, moreAt: [3, 5], dmg: 2.0, dmgStep: 0.4, r: 60, rStep: 12, speed: 520, range: 700, turn: 5 },
+    // v17 楽器：cd 秒ごとに、その場に半径 r の広場を置き直す（前の広場は消える）。中にいる味方にバフ（重ならない＝いちばん高いものだけ）
+    music:    { cd: 10, r: 170, rStep: 15, buffs: [null,   // 広場の半径 r（★が上がるごとに rStep 広がる）
+      { atk: 10 }, { atk: 12 }, { atk: 14, cut: 14 }, { atk: 16, cut: 16 }, { atk: 18, cut: 18, regen: 1 },
+      { atk: 20, cut: 20, regen: 1.2, spd: 10 }] },
   },
   // ---- 進化（赤★1）したスキル：いつも発動して大幅パワーアップ ----
   EVOLVE: {
@@ -350,17 +365,20 @@ DS.gameConfig = {
     soccer:   { balls: 2, speed: 1.3 },                    // ボール2つ・速い
     molotov:  { cd: 1.2 },                                 // 1.2秒ごと（数は赤★1で5本）
     gravity:  { r: 1.6, dps: 2 },                          // 範囲1.6倍・ダメージ2倍
+    rocket:   { cd: 1.2, count: 5, scale: 1.3 },           // 1.2秒ごとに5発・爆発1.3倍（ダメージ・大きさは★6段目まで上がる）
+    music:    { r: 1.2 },                                  // 広場さらに1.2倍（バフは buffs の6番目＝赤★1）
   },
 
   // ---- アビリティ（3枠） ----
   ABILITIES: {
-    drink:   { name: 'エナジードリンク', desc: (s) => `毎秒HPを${3 + s}%回復` },
+    drink:   { name: 'エナジードリンク', desc: (s) => `毎秒HPを${s}%回復` },   // v18：★1で1%、★ごとに+1%（赤★1で6%）
     ammo:    { name: '弾薬',             desc: (s) => `攻撃力 +${10 * s}%` },
     battery: { name: 'エネルギー装置',   desc: (s) => `攻撃速度 +${10 * s}%` },
     vest:    { name: '防弾チョッキ',     desc: (s) => `受けるダメージ -${10 * s}%` },
     scroll:  { name: '巻物',             desc: (s) => `チーム全体の経験値 +${10 * s}%` },
     coin:    { name: 'コイン獲得',       desc: (s) => `試合終了後にコイン +${300 * s}` },
     expand:  { name: '拡大モジュール',   desc: (s) => `攻撃の当たり判定が ${10 * s}% 大きくなる` },
+    gas:     { name: 'ガス注入',         desc: (s) => `弾の速さが ${10 * s}% 速くなる（クナイ・散弾・ミニガン・ロケット・火炎瓶など）` },   // v17
   },
 
   // ---- ミッション ----

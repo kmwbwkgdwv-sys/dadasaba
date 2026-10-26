@@ -183,6 +183,8 @@
     /** 今の攻撃力（弾薬・破壊者コート・破壊者フットアーマー込み） */
     atkOf(p) {
       let a = p.baseAtk * (1 + 0.1 * (p.abilities.ammo || 0));
+      const mb = this.musicBuff(p);
+      if (mb) a *= 1 + mb.atk / 100;                                  // 楽器の広場：攻撃アップ
       if (p.pas.leatherBelt && p.buff.lbelt > 0) a *= 1 + p.pas.leatherBelt.atk / 100;   // レザーベルト：回復アイテムで攻撃力アップ
       if (p.pas.destroyerCoat) a *= 1 + (p.pas.destroyerCoat.max - 1) * clamp(1 - p.hp / p.maxHp, 0, 1);
       if (p.pas.destroyerFoot) {
@@ -191,7 +193,11 @@
       }
       return a;
     }
-    cdMul(p) { return 1 / (1 + 0.1 * (p.abilities.battery || 0)); }
+    cdMul(p) { const mb = this.musicBuff(p); return 1 / (1 + 0.1 * (p.abilities.battery || 0) + (mb && mb.spd ? mb.spd / 100 : 0)); }
+    /** 楽器の広場の中にいるときのバフ（いちばん高いものだけ。重ならない）。いなければ null */
+    musicBuff(p) { return p.musicLv ? SP.music.buffs[p.musicLv] || null : null; }
+    /** ガス注入：弾の速さの倍率（★ごとに+10%） */
+    bulletMul(p) { return 1 + 0.1 * (p.abilities.gas || 0); }
     gravityR(p) { return SP.gravity.r * ((p.skills.gravity || 0) >= EVO ? EV.gravity.r : 1) * this.areaMul(p); }
     /** 拡大モジュール：攻撃の当たり判定の倍率（★ごとに+10%、赤★1で+60%） */
     areaMul(p) { return 1 + 0.1 * (p.abilities.expand || 0); }
@@ -353,6 +359,8 @@
       }
       let d = dmg * (1 - 0.1 * (p.abilities.vest || 0)) * (1 + p.dmgTaken / 100);
       if (p.pas.leatherArmor) d *= 1 - p.pas.leatherArmor.cut / 100;      // レザーアーマー：毎回3%軽減
+      const mb = this.musicBuff(p);
+      if (mb && mb.cut) d *= 1 - mb.cut / 100;                             // 楽器の広場：受けるダメージ減少
       if (p.pas.waistSensor && p.hp <= p.maxHp * p.pas.waistSensor.below) d *= 1 - p.pas.waistSensor.cut / 100;   // ウエストセンサー
       p.hp -= d;
       // エターナルベルト：攻撃を受けたときから3秒間無敵（60秒に1度）
@@ -723,8 +731,10 @@
       this.players.forEach((p) => {
         if (!p.down) {
           let regen = teamHeal;
-          if (p.abilities.drink) regen += 0.03 + 0.01 * p.abilities.drink;
+          if (p.abilities.drink) regen += 0.01 * p.abilities.drink;          // エナジードリンク：★1で毎秒1%、★ごとに+1%（赤★1で6%）
           if (p.pas.eternalBoots) regen += p.pas.eternalBoots.heal;
+          const mb = this.musicBuff(p);
+          if (mb && mb.regen) regen += mb.regen / 100;                       // 楽器の広場：毎秒回復
           if (regen) p.hp = Math.min(p.maxHp, p.hp + p.maxHp * regen * dt);
         }
         if (p.down) {
@@ -754,6 +764,13 @@
         if (e.frozen > 0) e.frozen -= dt;
         this.grid.insert(e);
       }
+
+      // ---- 楽器の広場：中にいる味方（自分も）のバフの強さ（いちばん高い★だけ） ----
+      this.players.forEach((p) => {
+        let lv = 0;
+        if (!p.down) for (const z of this.zones) if (z.kind === 3 && z.lv > lv && dist2(p.x, p.y, z.x, z.y) < z.r * z.r) lv = z.lv;
+        p.musicLv = lv;
+      });
 
       // ---- プレイヤーのまわりの効果（重力・フロストブーツ・ステラベルト） ----
       for (const p of players) {
@@ -1048,6 +1065,7 @@
       const evo = (k) => (S[k] || 0) >= EVO;            // 赤★1（進化）
       const st = (k) => Math.min(S[k] || 0, EVO);
 
+      const bm = this.bulletMul(p);                     // ガス注入：弾が速くなる
       // クナイ：追尾して必中（進化：0.4秒ごとに8本）
       if (S.kunai && this.ready(p, 'kunai', (evo('kunai') ? EV.kunai.cd : SP.kunai.cd) * this.wcd(p), dt)) {
         const used = new Set(), targets = [];
@@ -1060,7 +1078,7 @@
         if (!targets.length) p.cd.kunai = 0.1;
         targets.forEach((t, i) => {
           const a = Math.atan2(t.y - p.y, t.x - p.x) + (i - (targets.length - 1) / 2) * 0.25;
-          this.shots.push({ id: this.nextId++, kind: 0, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.kunai.speed, vy: Math.sin(a) * SP.kunai.speed, tgt: t, dmg: atk * SP.kunai.dmg, life: 2.5, r: 8 * am });
+          this.shots.push({ id: this.nextId++, kind: 0, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.kunai.speed * bm, vy: Math.sin(a) * SP.kunai.speed * bm, sp: SP.kunai.speed * bm, tgt: t, dmg: atk * SP.kunai.dmg, life: 2.5, r: 8 * am });
         });
       }
       // ショットガン：散弾（進化：0.35秒ごとに広い散弾）
@@ -1077,7 +1095,7 @@
             const per = atk * SP.shotgun.total * Math.pow(SP.shotgun.mult, st('shotgun') - 1) / n;
             for (let i = 0; i < n; i++) {
               const a = base + (i / (n - 1) - 0.5) * spread + rand(-0.04, 0.04);
-              this.shots.push({ id: this.nextId++, kind: 1, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.shotgun.speed, vy: Math.sin(a) * SP.shotgun.speed, dmg: per, life: SP.shotgun.range / SP.shotgun.speed, r: 5 * am });
+              this.shots.push({ id: this.nextId++, kind: 1, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.shotgun.speed * bm, vy: Math.sin(a) * SP.shotgun.speed * bm, dmg: per, life: SP.shotgun.range / (SP.shotgun.speed * bm), r: 5 * am });
             }
           }
         }
@@ -1132,7 +1150,7 @@
             while (mg.acc >= 1) {
               mg.acc -= 1;
               const a = Math.atan2(t.y - p.y, t.x - p.x) + rand(-0.06, 0.06);
-              this.shots.push({ id: this.nextId++, kind: 3, owner: p.id, x: p.x, y: p.y - 6, vx: Math.cos(a) * M.speed, vy: Math.sin(a) * M.speed, dmg: atk * M.dmg, life: M.range / M.speed, r: 5 * am });
+              this.shots.push({ id: this.nextId++, kind: 3, owner: p.id, x: p.x, y: p.y - 6, vx: Math.cos(a) * M.speed * bm, vy: Math.sin(a) * M.speed * bm, dmg: atk * M.dmg, life: M.range / (M.speed * bm), r: 5 * am });
             }
             if (mg.t <= 0) { mg.st = 'reload'; mg.t = Math.max(0.5, M.reload - M.reloadStep * (S.minigun - 1)); mg.acc = 0; }
           } else mg.acc = Math.min(mg.acc, 1);
@@ -1247,8 +1265,42 @@
           let tx, ty;
           if (near[i]) { tx = near[i].x; ty = near[i].y; }
           else { const a = rand(0, TAU); tx = p.x + Math.cos(a) * SP.molotov.throwDist; ty = p.y + Math.sin(a) * SP.molotov.throwDist; }
-          this.bottles.push({ id: this.nextId++, owner: p.id, x0: p.x, y0: p.y, x1: tx, y1: ty, t: 0, dur: 0.6,
+          this.bottles.push({ id: this.nextId++, owner: p.id, x0: p.x, y0: p.y, x1: tx, y1: ty, t: 0, dur: 0.6 / bm,
             r: (SP.molotov.r + SP.molotov.rStep * (s2 - 1)) * am, dps: atk * (SP.molotov.dps + SP.molotov.dpsStep * (s2 - 1)) });
+        }
+      }
+      // ロケット：近くの敵へ撃って爆発（★3・★5 で1発ずつ増える。進化：1.2秒ごとに5発・大きな爆発）
+      if (S.rocket) {
+        const R = SP.rocket, E = evo('rocket');
+        if (this.ready(p, 'rocket', E ? EV.rocket.cd : R.cd, dt)) {
+          const n = E ? EV.rocket.count : R.count + R.moreAt.filter((m) => S.rocket >= m).length;
+          const used = new Set(), targets = [];
+          for (let i = 0; i < n; i++) {
+            const t = this.nearestEnemy(p.x, p.y, R.range, used) || targets[i % Math.max(1, targets.length)];
+            if (!t) break;
+            used.add(t.id); targets.push(t);
+          }
+          if (!targets.length) p.cd.rocket = 0.2;
+          const lv = st('rocket');
+          const dmg = atk * (R.dmg + R.dmgStep * (lv - 1));
+          const er = (R.r + R.rStep * (lv - 1)) * (E ? EV.rocket.scale : 1) * am;
+          const sp = R.speed * bm;
+          targets.forEach((t, i) => {
+            const a = Math.atan2(t.y - p.y, t.x - p.x) + (i - (targets.length - 1) / 2) * 0.45;
+            this.shots.push({ id: this.nextId++, kind: 4, owner: p.id, x: p.x, y: p.y - 8, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, sp, tgt: t, dmg, er, life: R.range * 1.5 / sp, r: 10 * am });
+          });
+        }
+      }
+      // 楽器：その場に音楽の広場を置く（前の広場は消える）。中の味方にバフ（ダメージなし）
+      if (S.music) {
+        const lv = st('music'), r = (SP.music.r + SP.music.rStep * (lv - 1)) * (lv >= EVO ? EV.music.r : 1) * am;   // ★が上がるたびに広くなる
+        const mine = this.zones.find((z) => z.kind === 3 && z.owner === p.id);
+        if (mine) { mine.lv = lv; mine.r = r; }                   // ★が上がったらすぐ反映
+        if (this.ready(p, 'music', SP.music.cd, dt)) {
+          this.zones = this.zones.filter((z) => !(z.kind === 3 && z.owner === p.id));
+          const life = SP.music.cd + 0.5;
+          this.zones.push({ id: this.nextId++, kind: 3, owner: p.id, x: p.x, y: p.y, r, dps: 0, life, max: life, lv, slot: p.slot });
+          this.fx.push({ id: this.nextId++, k: 23, x: p.x, y: p.y, rt: this.clock, r, o: p.slot });
         }
       }
     }
@@ -1263,14 +1315,16 @@
         const base = t ? Math.atan2(t.y - p.y, t.x - p.x) : p.face;
         for (let i = 0; i < P.kunai.count; i++) {
           const a = base + (i - (P.kunai.count - 1) / 2) * 0.22;
-          this.shots.push({ id: this.nextId++, kind: 2, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.kunai.speed, vy: Math.sin(a) * SP.kunai.speed, dmg: atk * P.kunai.dmg, life: 0.95, r: 9 * this.areaMul(p) });
+          const bm = this.bulletMul(p);
+          this.shots.push({ id: this.nextId++, kind: 2, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.kunai.speed * bm, vy: Math.sin(a) * SP.kunai.speed * bm, dmg: atk * P.kunai.dmg, life: 0.95 / bm, r: 9 * this.areaMul(p) });
         }
       }
       // ショットガン：10秒に1度、全方向に撃つ
       if (P.shotgun && this.pready(p, 'shotgun', P.shotgun.cd, dt)) {
         for (let i = 0; i < P.shotgun.count; i++) {
           const a = i * TAU / P.shotgun.count + rand(-0.08, 0.08);
-          this.shots.push({ id: this.nextId++, kind: 1, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.shotgun.speed, vy: Math.sin(a) * SP.shotgun.speed, dmg: atk * P.shotgun.dmg, life: SP.shotgun.range * 1.2 / SP.shotgun.speed, r: 5 * this.areaMul(p) });
+          const bm = this.bulletMul(p);
+          this.shots.push({ id: this.nextId++, kind: 1, owner: p.id, x: p.x, y: p.y, vx: Math.cos(a) * SP.shotgun.speed * bm, vy: Math.sin(a) * SP.shotgun.speed * bm, dmg: atk * P.shotgun.dmg, life: SP.shotgun.range * 1.2 / (SP.shotgun.speed * bm), r: 5 * this.areaMul(p) });
         }
         this.fx.push({ id: this.nextId++, k: 7, x: p.x, y: p.y, r: 90, rt: this.clock });
       }
@@ -1347,12 +1401,24 @@
           if (!s.tgt || s.tgt.dead) s.tgt = this.nearestEnemy(s.x, s.y, 320);
           if (s.tgt) {
             const dx = s.tgt.x - s.x, dy = s.tgt.y - s.y, d = Math.hypot(dx, dy) || 1;
-            const sp = SP.kunai.speed;
+            const sp = s.sp || SP.kunai.speed;
             s.vx += (dx / d * sp - s.vx) * Math.min(1, dt * 14);
             s.vy += (dy / d * sp - s.vy) * Math.min(1, dt * 14);
             if (d < s.tgt.r + s.r + 6) { this.damageEnemy(s.tgt, s.dmg, s.owner); s.life = 0; continue; }
           }
           s.x += s.vx * dt; s.y += s.vy * dt;
+        } else if (s.kind === 4) {
+          // ロケット：標的に向かって曲がりながら飛び、敵に当たるか届かなくなったら爆発
+          if (!s.tgt || s.tgt.dead) s.tgt = this.nearestEnemy(s.x, s.y, 320);
+          if (s.tgt) {
+            const dx = s.tgt.x - s.x, dy = s.tgt.y - s.y, d = Math.hypot(dx, dy) || 1;
+            const k = Math.min(1, dt * SP.rocket.turn);
+            s.vx += (dx / d * s.sp - s.vx) * k; s.vy += (dy / d * s.sp - s.vy) * k;
+          }
+          s.x += s.vx * dt; s.y += s.vy * dt;
+          let hit = false;
+          this.grid.each(s.x, s.y, s.r + 60, (e) => { if (!hit && !e.dead && dist2(s.x, s.y, e.x, e.y) < (s.r + e.r) * (s.r + e.r)) hit = true; });
+          if (hit || s.life <= 0) this.explodeRocket(s);
         } else {
           s.x += s.vx * dt; s.y += s.vy * dt;
           this.hitBoxes(s.x, s.y, s.r);
@@ -1372,6 +1438,14 @@
         }
       }
       this.bottles = this.bottles.filter((b) => !b.done);
+    }
+    /** ロケットの爆発：まわりの敵にまとめてダメージ（ボスにも当たる）。近くのダンボールもこわれる */
+    explodeRocket(s) {
+      if (s.boom) return;
+      s.boom = true; s.life = 0;
+      this.fx.push({ id: this.nextId++, k: 22, x: s.x, y: s.y, rt: this.clock, r: s.er });
+      this.enemiesNear(s.x, s.y, s.er).forEach((e) => this.damageEnemy(e, s.dmg, s.owner));
+      this.hitBoxes(s.x, s.y, s.er * 0.6);
     }
     updateEnemyShots(dt, players) {
       for (const s of this.eshots) {
@@ -1395,6 +1469,7 @@
             e.x += dx / d * step; e.y += dy / d * step;
           });
         }
+        if (z.kind === 3) continue;   // 楽器の広場はダメージなし
         this.hitBoxes(z.x, z.y, z.r);
         for (const e of this.enemiesNear(z.x, z.y, z.r)) this.damageEnemy(e, z.dps * dt, z.owner);
       }
@@ -1423,7 +1498,7 @@
         P.push([p.id, p.slot, R(p.x), R(p.y), R(p.hp), R(p.maxHp), p.down ? 1 : 0, +(p.revive / GC.PLAYER.reviveSeconds).toFixed(2), p.kills,
           this.buildOf(p), p.skills.gravity ? Math.round(this.gravityR(p)) : 0, (p.frost ? 1 : 0) | (p.stella ? 2 : 0),
           p.look, +p.scd.toFixed(1), +Math.max(p.buff.inv, p.buff.spd, p.buff.fast, p.char === 'widow' ? Math.max(0, this.widowT) : 0).toFixed(1),
-          (p.buff.inv > 0 ? 1 : 0) | (p.buff.spd > 0 ? 2 : 0) | (p.buff.fast > 0 ? 4 : 0) | (p.shield ? 8 : 0) | (p.buff.dual > 0 ? 16 : 0) | (p.buff.lbelt > 0 ? 32 : 0),
+          (p.buff.inv > 0 ? 1 : 0) | (p.buff.spd > 0 ? 2 : 0) | (p.buff.fast > 0 ? 4 : 0) | (p.shield ? 8 : 0) | (p.buff.dual > 0 ? 16 : 0) | (p.buff.lbelt > 0 ? 32 : 0) | (p.musicLv ? 64 : 0),
           +p.face.toFixed(2)]);
         if (p.down) return;
         if (p.skills.defender) {
@@ -1462,7 +1537,7 @@
         : [B.id, B.kind, R(B.x), R(B.y), R(B.r), +(1 - B.t / B.max).toFixed(2)]);
       for (const s of this.shots) K.push([s.id, s.kind, R(s.x), R(s.y), +Math.atan2(s.vy, s.vx).toFixed(2)]);
       for (const s of this.eshots) Q.push([s.id, s.kind, R(s.x), R(s.y), s.r]);
-      for (const z of this.zones) Z.push([z.id, z.kind, R(z.x), R(z.y), z.r, +(z.life / z.max).toFixed(2)]);
+      for (const z of this.zones) Z.push([z.id, z.kind, R(z.x), R(z.y), R(z.r), +(z.life / z.max).toFixed(2), z.slot != null ? z.slot : -1]);
       for (const b of this.bottles) {
         const k = b.t / b.dur;
         O.push([4, R(b.x0 + (b.x1 - b.x0) * k), R(b.y0 + (b.y1 - b.y0) * k - Math.sin(k * Math.PI) * 60), 12, -1, 'm' + b.id]);

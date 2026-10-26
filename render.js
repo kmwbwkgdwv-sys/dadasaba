@@ -251,6 +251,20 @@
           c.restore();
           continue;
         }
+        if (k[1] === 4) { // ロケット
+          c.save(); c.translate(k[2], k[3]); c.rotate(k[4]);
+          const fl = 0.7 + 0.3 * Math.sin(now * 40 + k[0]);
+          c.fillStyle = 'rgba(255,170,40,.85)'; c.beginPath(); c.moveTo(-14, -5); c.lineTo(-14 - 16 * fl, 0); c.lineTo(-14, 5); c.closePath(); c.fill();
+          c.fillStyle = '#fff3a0'; c.beginPath(); c.moveTo(-14, -2.6); c.lineTo(-14 - 8 * fl, 0); c.lineTo(-14, 2.6); c.closePath(); c.fill();
+          c.fillStyle = '#e8394d'; c.strokeStyle = '#231a3a'; c.lineWidth = 2.2;
+          c.beginPath(); c.moveTo(-14, -6); c.lineTo(-14, 6); c.lineTo(-20, 10); c.lineTo(-17, 0); c.lineTo(-20, -10); c.closePath(); c.fill(); c.stroke();
+          c.fillStyle = '#f4f1ff';
+          c.beginPath(); c.moveTo(-14, -6); c.lineTo(6, -6); c.quadraticCurveTo(16, -4, 18, 0); c.quadraticCurveTo(16, 4, 6, 6); c.lineTo(-14, 6); c.closePath(); c.fill(); c.stroke();
+          c.fillStyle = '#e8394d'; c.beginPath(); c.moveTo(6, -6); c.quadraticCurveTo(16, -4, 18, 0); c.quadraticCurveTo(16, 4, 6, 6); c.closePath(); c.fill(); c.stroke();
+          c.fillStyle = '#5ec8ff'; c.beginPath(); c.arc(-2, 0, 2.6, 0, TAU); c.fill(); c.stroke();
+          c.restore();
+          continue;
+        }
         if (k[1] === 0 || k[1] === 2) {
           const img = this.sp.kunai;
           c.save(); c.translate(k[2], k[3]); c.rotate(k[4] + 50 * Math.PI / 180);
@@ -282,7 +296,7 @@
       }
 
       // ---- エフェクト（一度見たものを短い間だけ表示） ----
-      const SND = { 0: 'zap', 2: 'kill', 3: 'boss', 4: 'shot', 6: 'swing', 8: 'box', 9: 'heal', 11: 'swing', 12: 'boss', 15: 'zap', 16: 'revive', 18: 'boss', 19: 'zap', 20: 'click', 21: 'levelup' };
+      const SND = { 0: 'zap', 2: 'kill', 3: 'boss', 4: 'shot', 6: 'swing', 8: 'box', 9: 'heal', 11: 'swing', 12: 'boss', 15: 'zap', 16: 'revive', 18: 'boss', 19: 'zap', 20: 'click', 21: 'levelup', 22: 'box', 23: 'heal' };
       for (const f of view.X) {
         if (this.seenFx.has(f[0])) continue;
         this.seenFx.set(f[0], { f, t0: now });
@@ -356,6 +370,28 @@
     drawZone(z, now) {
       const c = this.ctx, [, kind, x, y, r, life] = z;
       const a = Math.min(1, life * 3);
+      if (kind === 3) { // 楽器の広場（バフ）：やさしい色の輪と、くるくる回る音符
+        const col = z[6] >= 0 ? COLORS[z[6]] : '#ff8fd0';
+        const pulse = 0.5 + 0.5 * Math.sin(now * 2.4 + z[0]);
+        c.fillStyle = `rgba(255,170,230,${(0.1 + 0.05 * pulse) * a})`; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+        c.globalAlpha = 0.85 * a; c.strokeStyle = col; c.lineWidth = 4; c.setLineDash([16, 10]);
+        c.beginPath(); c.arc(x, y, r, now * 0.25, now * 0.25 + TAU); c.stroke(); c.setLineDash([]);
+        c.strokeStyle = `rgba(255,255,255,${0.6 * a})`; c.lineWidth = 2;
+        c.beginPath(); c.arc(x, y, r * (0.86 + 0.06 * pulse), 0, TAU); c.stroke();
+        // 音符
+        c.font = '900 22px "M PLUS Rounded 1c", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.lineWidth = 3; c.strokeStyle = '#231a3a';
+        const n = this.lite ? 3 : 6;
+        for (let i = 0; i < n; i++) {
+          const ang = now * 0.6 + i * TAU / n + z[0], rr = r * 0.72, bob = Math.sin(now * 3 + i) * 6;
+          const nx = x + Math.cos(ang) * rr, ny = y + Math.sin(ang) * rr * 0.85 + bob;
+          c.fillStyle = i % 2 ? '#ffd23d' : '#ff6fb5';
+          const ch = i % 3 === 0 ? '♪' : i % 3 === 1 ? '♫' : '♬';
+          c.strokeText(ch, nx, ny); c.fillText(ch, nx, ny);
+        }
+        c.globalAlpha = 1;
+        return;
+      }
       if (kind === 2) { // ブラックホール（破壊の力）
         const g = c.createRadialGradient(x, y, 0, x, y, r * 1.6);
         g.addColorStop(0, `rgba(0,0,0,${0.95 * a})`); g.addColorStop(0.45, `rgba(20,0,40,${0.9 * a})`);
@@ -553,6 +589,12 @@
           }
         }
       }
+      if (buff & 64) { // 楽器の広場の中（バフ中）：頭の上に音符
+        const t = performance.now() / 1000, bob = Math.sin(t * 5) * 3;
+        c.font = '900 18px "M PLUS Rounded 1c", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        c.lineWidth = 3; c.strokeStyle = '#231a3a'; c.fillStyle = '#ff6fb5';
+        c.strokeText('♪', x + 30, y - 30 + bob); c.fillText('♪', x + 30, y - 30 + bob);
+      }
       if (buff & 32) { // レザーベルト：攻撃力アップ中
         const t = performance.now() / 1000;
         c.strokeStyle = `rgba(255,120,60,${0.55 + 0.3 * Math.sin(t * 8)})`; c.lineWidth = 3;
@@ -700,8 +742,13 @@
         c.strokeStyle = `rgba(63,224,255,${0.7 * a})`; c.lineWidth = 20;
         c.beginPath(); c.arc(0, 0, r - 6, sweep - 1.2, sweep); c.stroke();
         c.restore();
-      } else if (k === 12 || k === 14) { // メテオの着弾・爆発
-        const dur = k === 12 ? 0.6 : 0.4, a = 1 - age / dur;
+      } else if (k === 23) { // 楽器の広場を置いた
+        const a = 1 - age / 0.6;
+        if (a <= 0) return;
+        c.strokeStyle = `rgba(255,140,210,${a})`; c.lineWidth = 6;
+        c.beginPath(); c.arc(x, y, (r || 160) * (0.3 + age / 0.6 * 0.7), 0, TAU); c.stroke();
+      } else if (k === 12 || k === 14 || k === 22) { // メテオの着弾・爆発・ロケットの爆発
+        const dur = k === 12 ? 0.6 : k === 22 ? 0.45 : 0.4, a = 1 - age / dur;
         if (a <= 0) return;
         const rr = (r || 40) * (0.6 + age / dur * 0.6);
         const g = c.createRadialGradient(x, y, 4, x, y, rr);

@@ -47,6 +47,10 @@
     const out = { title: String(g.title || '運営からのプレゼント').slice(0, 40), text: String(g.text || '').slice(0, 300),
       coins: Math.min(coins, GIFT_MAX_COINS), tickets, at: Number(g.at) || 0 };
     if (Number(g.until) > 0) out.until = Number(g.until);   // 受け取れる期限（全員へのプレゼント）
+    // v17：ランダム設計図・エナジーエッセンスも送れる
+    const bp = Math.floor(Number(g.bp) || 0), essence = Math.floor(Number(g.essence) || 0);
+    if (bp > 0) out.bp = Math.min(bp, 99999);
+    if (essence > 0) out.essence = Math.min(essence, 9999999);
     return out;
   }
   function cleanTrades(t) {
@@ -771,6 +775,8 @@
       if (pr.claimed || (id && pr.id !== id)) return;
       save.presents.claimed[pr.id] = Date.now();
       if (pr.coins) { got.push(grantReward({ coins: pr.coins })); coins += pr.coins; }
+      if (pr.bp) got.push(grantReward({ bp: pr.bp }));
+      if (pr.essence) got.push(grantReward({ essence: pr.essence }));
       Object.keys(pr.tickets || {}).forEach((k) => { got.push(grantReward({ ticket: k, ticketN: pr.tickets[k] })); });
       if (pr.gift) gifts.push(pr.gift);
       if (pr.allGift) allGifts.push(pr.allGift);
