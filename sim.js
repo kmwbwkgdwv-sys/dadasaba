@@ -250,10 +250,23 @@
         this.boxes.push({ id: this.nextId++, x, y, r: B.r });
       }
     }
-    hitBoxes(x, y, r) {
+    /** こちらの攻撃が (x, y) の半径 r に当たった：ダンボールを壊す・魔法使いゾンビの弾を消す（body：体当たりのときは弾を消さない） */
+    hitBoxes(x, y, r, body) {
+      if (!body) this.cutShots(x, y, r);
       if (!this.boxes.length) return;
       for (const b of this.boxes) {
         if (!b.broken && dist2(x, y, b.x, b.y) < (r + b.r) * (r + b.r)) this.breakBox(b);
+      }
+    }
+    /** v23：魔法使いゾンビの弾は、こちらの攻撃（弾・斬撃・爆発・炎など）が当たると消える */
+    cutShots(x, y, r) {
+      if (!this.mageShots) return;
+      for (const s of this.eshots) {
+        if (!s.mage || s.life <= 0) continue;
+        if (dist2(x, y, s.x, s.y) < (r + s.r) * (r + s.r)) {
+          s.life = 0; this.mageShots--;
+          this.fx.push({ id: this.nextId++, k: 25, x: s.x, y: s.y, rt: this.clock, r: s.r });
+        }
       }
     }
     breakBox(b) {
@@ -710,7 +723,7 @@
 
       // ---- ダンボールを壊す・回復アイテムを拾う ----
       for (const p of players) {
-        this.hitBoxes(p.x, p.y, p.r);
+        this.hitBoxes(p.x, p.y, p.r, true);
         for (const h of this.heals) {
           if (!h.taken && dist2(p.x, p.y, h.x, h.y) < (p.r + 24) * (p.r + 24)) {
             h.taken = true;
@@ -818,8 +831,10 @@
           e.cd -= dt * e.atkSlow;
           if (e.cd <= 0 && d < R.range) {
             e.cd = R.cd;
-            const proj = e.type === 'mageZombie' && this.roster.mageProj ? this.roster.mageProj : R.proj;
-            this.eshots.push({ id: this.nextId++, kind: PROJ_KINDS.indexOf(proj), x: e.x, y: e.y - 10, vx: dx * R.speed, vy: dy * R.speed, r: R.pr, atk: e.atk, life: R.range / R.speed + 0.6 });
+            const mage = e.type === 'mageZombie';
+            const proj = mage && this.roster.mageProj ? this.roster.mageProj : R.proj;
+            this.eshots.push({ id: this.nextId++, kind: PROJ_KINDS.indexOf(proj), x: e.x, y: e.y - 10, vx: dx * R.speed, vy: dy * R.speed, r: R.pr, atk: e.atk, life: R.range / R.speed + 0.6, mage });
+            if (mage) this.mageShots = (this.mageShots || 0) + 1;
           }
         }
         // 突進する中ボス（デュラハン）
@@ -1428,6 +1443,7 @@
             if (d < s.tgt.r + s.r + 6) { this.damageEnemy(s.tgt, s.dmg, s.owner); s.life = 0; continue; }
           }
           s.x += s.vx * dt; s.y += s.vy * dt;
+          this.cutShots(s.x, s.y, s.r);
         } else if (s.kind === 4) {
           // ロケット：標的に向かって曲がりながら飛び、敵に当たるか届かなくなったら爆発
           if (!s.tgt || s.tgt.dead) s.tgt = this.nearestEnemy(s.x, s.y, 320);
@@ -1470,6 +1486,7 @@
     }
     updateEnemyShots(dt, players) {
       for (const s of this.eshots) {
+        if (s.life <= 0) continue;   // こちらの攻撃で消された弾
         s.life -= dt;
         s.x += s.vx * dt; s.y += s.vy * dt;
         for (const p of players) {
@@ -1477,6 +1494,7 @@
         }
       }
       this.eshots = this.eshots.filter((s) => s.life > 0);
+      this.mageShots = this.eshots.reduce((n, s) => n + (s.mage ? 1 : 0), 0);
     }
     updateZones(dt) {
       for (const z of this.zones) {
@@ -1557,7 +1575,7 @@
       for (const B of this.blasts) W.push(B.rect ? [B.id, B.kind, R(B.x), R(B.y), R(B.r), +(1 - B.t / B.max).toFixed(2), R(B.hh), B.face]
         : [B.id, B.kind, R(B.x), R(B.y), R(B.r), +(1 - B.t / B.max).toFixed(2)]);
       for (const s of this.shots) K.push([s.id, s.kind, R(s.x), R(s.y), +Math.atan2(s.vy, s.vx).toFixed(2)]);
-      for (const s of this.eshots) Q.push([s.id, s.kind, R(s.x), R(s.y), s.r]);
+      for (const s of this.eshots) if (s.life > 0) Q.push([s.id, s.kind, R(s.x), R(s.y), s.r]);
       for (const z of this.zones) Z.push([z.id, z.kind, R(z.x), R(z.y), R(z.r), +(z.life / z.max).toFixed(2), z.slot != null ? z.slot : -1]);
       for (const b of this.bottles) {
         const k = b.t / b.dur;

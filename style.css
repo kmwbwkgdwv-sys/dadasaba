@@ -2386,3 +2386,16 @@ button.ow-chip:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--in
 .ow-chip.off em { color: #6b6390; }
 .room-ow { margin: 2px 0 8px; }
 .bt-ow { background: linear-gradient(#ff8a3d, #e8402a); border: 2px solid var(--ink); border-radius: 8px; padding: 0 7px; }
+
+/* v23：ミニゲームのログ（脱落・スキルなど）。右上のミニマップの下に小さく出す */
+.mg-feed { position: absolute; right: calc(10px + env(safe-area-inset-right, 0px)); top: calc(var(--safe-t) + 130px); z-index: 3;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px; pointer-events: none; max-width: 64%; }
+.mg-feed-row { font-size: 12px; font-weight: 900; line-height: 1.3; text-align: right;
+  background: rgba(20, 14, 50, .8); border: 2px solid var(--ink); border-right: 5px solid #8f86c0; border-radius: 9px; padding: 2px 8px;
+  animation: feedIn .25s ease-out; transition: opacity .45s, transform .45s; }
+.mg-feed-row b { text-shadow: 0 1px 0 rgba(0, 0, 0, .6); }
+.mg-feed-row.warn { border-right-color: #ff5a72; }
+.mg-feed-row.good { border-right-color: #45d26a; }
+.mg-feed-row.skill { border-right-color: #b98cff; }
+.mg-feed-row.out { opacity: 0; transform: translateX(12px); }
+@keyframes feedIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }

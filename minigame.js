@@ -248,6 +248,7 @@
           </div>
           <div class="bt-banner"></div>
           <div class="mg-sub"></div>
+          <div class="mg-feed" aria-live="polite"></div>
         </div>
         <div class="bt-joy hidden"><div class="bt-joy-knob"></div></div>
         ${sk ? `<button class="bt-skill" aria-label="特殊スキル"><span class="bt-skill-ic">${A.skillButtonIcon(this.self.char)}</span><svg class="bt-skill-ring" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46"/></svg><b class="bt-skill-cd"></b><small class="bt-skill-name">${esc(MG.EFFECT_NAMES[sk])}</small></button>` : ''}
@@ -262,7 +263,7 @@
       this.root = root;
       const q = (s) => root.querySelector(s);
       this.el = {
-        canvas: q('.bt-canvas'), map: q('.mg-map'), info: q('.mg-info'), board: q('.mg-board'), banner: q('.bt-banner'), sub: q('.mg-sub'),
+        canvas: q('.bt-canvas'), map: q('.mg-map'), feed: q('.mg-feed'), info: q('.mg-info'), board: q('.mg-board'), banner: q('.bt-banner'), sub: q('.mg-sub'),
         joy: q('.bt-joy'), knob: q('.bt-joy-knob'), skill: q('.bt-skill'), menu: q('.bt-menu-panel'), result: q('.bt-result'),
         ready: q('.mg-ready'), vote: q('.mg-vote'), finish: q('.mg-finish'), spec: q('.mg-spec'), specName: q('.mg-spec-name'),
         loading: q('.bt-loading'), hurt: q('.bt-hurt'),
@@ -517,23 +518,24 @@
           this.graves.set(e.id, { x: e.x, y: e.y });
           this.fx.push({ kind: 'burst', x: e.x, y: e.y, color: '#ff4f6a', t0: performance.now() / 1000 });
           if (e.id === this.selfId) break;
-          if (e.by && this.names[e.by]) this.banner(`${this.names[e.by]} が ${this.names[e.id]} を倒した！`, 2000, 'warn');
-          else if (e.by === 'zombie') this.banner(`${this.names[e.id] || ''} がゾンビにつかまった！`, 2000, 'warn');
-          else this.banner(`${this.names[e.id] || ''} が脱落！`, 1800, 'warn');
+          // v23：だれかが脱落したログは、画面の真ん中ではなく右上（ミニマップの下）に小さく出す（弾をよけるじゃまにならないように）
+          if (e.by && this.names[e.by]) this.feed(`${this.who(e.by)} が ${this.who(e.id)} を倒した！`, 'warn');
+          else if (e.by === 'zombie') this.feed(`${this.who(e.id)} がゾンビにつかまった！`, 'warn');
+          else this.feed(`${this.who(e.id)} が脱落！`, 'warn');
           snd('down');
           if (this.spectate === e.id) this.cycleSpectate(1);
           break;
         }
         case 'catch': if (e.id === this.selfId) snd('click'); break;
         case 'steal':
-          if (e.id === this.selfId) { snd('box'); this.banner(`${this.names[e.from] || ''} の柵からゾンビを取った！`, 1600, 'good'); }
-          else if (e.from === this.selfId) { snd('down'); this.banner(`${this.names[e.id] || ''} に柵のゾンビを取られた！`, 1800, 'warn'); }
+          if (e.id === this.selfId) { snd('box'); this.feed(`${this.who(e.from)} の柵からゾンビを取った！`, 'good'); }
+          else if (e.from === this.selfId) { snd('down'); this.feed(`${this.who(e.id)} に柵のゾンビを取られた！`, 'warn'); }
           break;
         case 'release':
           if (e.id === this.selfId) { snd('box'); this.pop(this.me.x, this.me.y, `+${e.n}`, '#7dff9a'); }
           break;
         case 'skill':
-          if (e.key === 'veil') this.banner(`${this.names[e.id] || ''}：ブラックヴェール！\nゾンビが遅くなった`, 1800, 'skill');
+          if (e.key === 'veil') this.feed(`${this.who(e.id)}：ブラックヴェール！ゾンビが遅くなった`, 'skill');
           break;
         case 'art':
           if (e.id !== this.selfId) { const a = this.arts[e.id] || (this.arts[e.id] = { n: e.n, parts: [] }); a.n = e.n; a.parts[e.i] = e.d; }
@@ -545,7 +547,7 @@
         case 'vote': this.showVote(e.order, e.sec); break;
         case 'voted': this.votedN = (this.votedN || 0) + 1; this.updateVoteWait(); break;
         case 'left':
-          this.banner(`${this.names[e.id] || ''} が退出しました`, 1800);
+          this.feed(`${this.who(e.id)} が退出しました`);
           break;
         case 'end': this.showResult(e.r); break;
         default: break;
@@ -1054,6 +1056,26 @@
       if (this.game === 'draw' && tp && this.topic() && tp.classList.contains('hidden')) {
         tp.innerHTML = `お題<b>${esc(this.topic())}</b>`; tp.classList.remove('hidden');
       }
+    }
+    /** プレイヤーの名前（その人の色） */
+    who(id) {
+      const slot = this.slots[id];
+      return `<b style="color:${slot != null ? COLORS[slot] : '#fff'}">${esc(this.names[id] || '')}</b>`;
+    }
+    /** v23：ログ（脱落・スキルなど）を右上のミニマップの下に小さく出す。4つまで、少したつと消える */
+    feed(html, cls = '') {
+      const box = this.el.feed;
+      if (!box) return;
+      // ミニマップの大きさ（設定で変わる）に合わせて、すぐ下に置く
+      const map = this.el.map, root = this.root;
+      if (map && root) box.style.top = Math.round(map.getBoundingClientRect().bottom - root.getBoundingClientRect().top + 6) + 'px';
+      const row = document.createElement('div');
+      row.className = 'mg-feed-row ' + cls;
+      row.innerHTML = html;
+      box.appendChild(row);
+      while (box.children.length > 4) box.firstChild.remove();
+      setTimeout(() => row.classList.add('out'), 3200);
+      setTimeout(() => row.remove(), 3700);
     }
     banner(text, ms = 2200, cls = '') {
       const b = this.el.banner;

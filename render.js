@@ -841,6 +841,15 @@
         if (a <= 0) return;
         c.strokeStyle = `rgba(255,214,90,${a})`; c.lineWidth = 6;
         c.beginPath(); c.arc(x, y, r * Math.min(1, age / 0.25), 0, TAU); c.stroke();
+      } else if (k === 25) { // v23：魔法使いゾンビの弾をこちらの攻撃で消した
+        const a = 1 - age / 0.3;
+        if (a <= 0) return;
+        c.strokeStyle = `rgba(214,170,255,${a})`; c.lineWidth = 3;
+        for (let i = 0; i < 6; i++) {
+          const ang = i * TAU / 6 + f[0], d0 = 4 + age * 60, d1 = d0 + 7;
+          c.beginPath(); c.moveTo(x + Math.cos(ang) * d0, y + Math.sin(ang) * d0); c.lineTo(x + Math.cos(ang) * d1, y + Math.sin(ang) * d1); c.stroke();
+        }
+        c.fillStyle = `rgba(255,255,255,${a * 0.8})`; c.beginPath(); c.arc(x, y, (r || 9) * (1 - age * 2.5 > 0.2 ? 1 - age * 2.5 : 0.2), 0, TAU); c.fill();
       } else if (k === 8) { // ダンボールが壊れた
         const a = 1 - age / 0.45;
         if (a <= 0) return;

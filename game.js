@@ -401,12 +401,8 @@
           const who = names.length === 1 ? names[0] + 'の群れ' : names.length ? names.join('と') + 'の大群' : '敵の大群';
           this.banner(`ラッシュ！\n${who}が突撃してくる！`, 2800, 'warn'); break;
         }
-        case 'skill': {
-          const d = C.CHARACTERS[e.char];
-          // アカギは頭の上のサイコロが目立つように、自分が使ったときは帯を出さない
-          if (d && d.skill && !(e.char === 'akagi' && e.id === this.selfId)) this.banner(`${e.id === this.selfId ? '' : e.name + '：'}${d.skill.name}！`, 1500, 'skill');
-          break;
-        }
+        // v23：特殊スキルを使ったときの帯（「○○：スキル名！」）は出さない（画面の真ん中が見えにくくなるため）
+        case 'skill': break;
         case 'midbossDown': this.banner(e.chest ? '中ボスを倒した！\n宝箱を開けると★が上がる！' : '中ボスを倒した！', 2600, 'good'); break;
         case 'roulette': this.showRoulette(e); break;
         case 'chest': {

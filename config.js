@@ -493,14 +493,15 @@ DS.config = {
   // reward: coins（コイン）/ bp（ランダム設計図）/ ticket（item10・char10）/ tool（どうぐ）
   LIMITED: {
     durationMs: (8 * 24 * 3600 - 1) * 1000,
+    // v23：ステージクリアのミッションは「1日目にステージ1 → 7日目にステージ7」（v22でステージ3から手ごわくしたので、1日1ステージずつ）
     days: [
       [{ type: 'login', n: 1, reward: { coins: 300 } }, { type: 'stage', n: 1, reward: { bp: 10 } }, { type: 'kills', n: 3000, reward: { coins: 300 } }, { type: 'pulls', n: 20, reward: { bp: 10 } }],
-      [{ type: 'login', n: 2, reward: { coins: 300 } }, { type: 'stage', n: 3, reward: { bp: 10 } }, { type: 'kills', n: 6000, reward: { coins: 300 } }, { type: 'pulls', n: 30, reward: { bp: 10 } }],
-      [{ type: 'login', n: 3, reward: { coins: 300 } }, { type: 'stage', n: 5, reward: { bp: 10 } }, { type: 'kills', n: 9000, reward: { coins: 300 } }, { type: 'fuse', n: 3, reward: { bp: 10 } }],
-      [{ type: 'login', n: 4, reward: { coins: 300 } }, { type: 'stage', n: 7, reward: { bp: 10 } }, { type: 'kills', n: 12000, reward: { coins: 300 } }, { type: 'levelUp', n: 5, reward: { bp: 10 } }],
-      [{ type: 'login', n: 5, reward: { coins: 300 } }, { type: 'stage', n: 9, reward: { bp: 10 } }, { type: 'kills', n: 15000, reward: { coins: 300 } }, { type: 'charPulls', n: 10, reward: { bp: 10 } }],
-      [{ type: 'login', n: 6, reward: { coins: 300 } }, { type: 'stage', n: 11, reward: { bp: 10 } }, { type: 'kills', n: 18000, reward: { coins: 300 } }, { type: 'pulls', n: 50, reward: { bp: 10 } }],
-      [{ type: 'login', n: 7, reward: { coins: 300 } }, { type: 'stage', n: 13, reward: { bp: 10 } }, { type: 'kills', n: 21000, reward: { coins: 300 } }, { type: 'clears', n: 20, reward: { bp: 10 } }],
+      [{ type: 'login', n: 2, reward: { coins: 300 } }, { type: 'stage', n: 2, reward: { bp: 10 } }, { type: 'kills', n: 6000, reward: { coins: 300 } }, { type: 'pulls', n: 30, reward: { bp: 10 } }],
+      [{ type: 'login', n: 3, reward: { coins: 300 } }, { type: 'stage', n: 3, reward: { bp: 10 } }, { type: 'kills', n: 9000, reward: { coins: 300 } }, { type: 'fuse', n: 3, reward: { bp: 10 } }],
+      [{ type: 'login', n: 4, reward: { coins: 300 } }, { type: 'stage', n: 4, reward: { bp: 10 } }, { type: 'kills', n: 12000, reward: { coins: 300 } }, { type: 'levelUp', n: 5, reward: { bp: 10 } }],
+      [{ type: 'login', n: 5, reward: { coins: 300 } }, { type: 'stage', n: 5, reward: { bp: 10 } }, { type: 'kills', n: 15000, reward: { coins: 300 } }, { type: 'charPulls', n: 10, reward: { bp: 10 } }],
+      [{ type: 'login', n: 6, reward: { coins: 300 } }, { type: 'stage', n: 6, reward: { bp: 10 } }, { type: 'kills', n: 18000, reward: { coins: 300 } }, { type: 'pulls', n: 50, reward: { bp: 10 } }],
+      [{ type: 'login', n: 7, reward: { coins: 300 } }, { type: 'stage', n: 7, reward: { bp: 10 } }, { type: 'kills', n: 21000, reward: { coins: 300 } }, { type: 'clears', n: 20, reward: { bp: 10 } }],
     ],
     // クリアしたミッションの数に応じたごほうび
     milestones: [
