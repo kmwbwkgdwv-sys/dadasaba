@@ -26,6 +26,7 @@
     s.E = E;
     return s;
   }
+  const owMin = () => Math.round(((GC.OVERWHELM && GC.OVERWHELM.seconds) || 180) / 60);
   const PHASE_LABEL = { warp: 'まもなくワープ', intro: 'まもなくボス', boss: 'BOSS' };
   const isLite = () => !!(DS.settings && DS.settings.lite());
 
@@ -86,7 +87,7 @@
           <div class="bt-row">
             <div class="bt-left">
               <div class="bt-timebox"><button class="bt-menu" aria-label="メニュー">Ⅱ</button><span class="bt-time">00:00</span></div>
-              <div class="bt-sub"><span class="bt-phase"></span><span class="bt-kills">撃破 0</span>${this.o.members.length > 1 ? `<span class="bt-diff">難易度×${GC.DIFFICULTY.party}</span>` : ''}</div>
+              <div class="bt-sub"><span class="bt-phase"></span><span class="bt-kills">撃破 0</span><span class="bt-ow hidden">圧倒</span>${this.o.members.length > 1 ? `<span class="bt-diff">難易度×${GC.DIFFICULTY.party}</span>` : ''}</div>
               <div class="bt-build"></div>
             </div>
             <canvas class="bt-map" width="240" height="240"></canvas>
@@ -109,7 +110,7 @@
       const q = (s) => root.querySelector(s);
       this.el = {
         canvas: q('.bt-canvas'), map: q('.bt-map'), xp: q('.bt-xp-fill'), lv: q('.bt-lv'), time: q('.bt-time'),
-        phase: q('.bt-phase'), kills: q('.bt-kills'), build: q('.bt-build'), boss: q('.bt-boss'), bossName: q('.bt-boss-name'),
+        phase: q('.bt-phase'), kills: q('.bt-kills'), ow: q('.bt-ow'), build: q('.bt-build'), boss: q('.bt-boss'), bossName: q('.bt-boss-name'),
         bossFill: q('.bt-boss-fill'), bossHp: q('.bt-boss-hp'), banner: q('.bt-banner'), count: q('.bt-count'), down: q('.bt-down'),
         joy: q('.bt-joy'), knob: q('.bt-joy-knob'), lvl: q('.bt-lvl'), roul: q('.bt-roul'), menu: q('.bt-menu-panel'), result: q('.bt-result'),
         loading: q('.bt-loading'), hurt: q('.bt-hurt'),
@@ -133,7 +134,7 @@
       if (!this.alive) return;
 
       if (this.isHost) {
-        this.sim = new DS.Sim({ stageIndex: this.stageIndex, players: this.o.members });
+        this.sim = new DS.Sim({ stageIndex: this.stageIndex, players: this.o.members, overwhelm: !!this.o.overwhelm });
         const p = this.sim.players.get(this.selfId);
         if (p) { this.me.x = p.x; this.me.y = p.y; }
       }
@@ -151,7 +152,7 @@
       this.applyLayout();
       if (DS.sound) DS.sound.bgm('battle');
       this.el.loading.remove();
-      this.banner(`STAGE ${this.stage.no}\n${this.stage.name}`, 2600);
+      this.banner(`STAGE ${this.stage.no}\n${this.stage.name}${this.o.overwhelm ? `\n圧倒モード：${owMin()}分でボス戦！` : ''}`, this.o.overwhelm ? 3200 : 2600);
       setTimeout(() => { const h = this.root && this.root.querySelector('.bt-hint'); if (h) h.classList.add('off'); }, 6000);
       this.raf = requestAnimationFrame(this.frame);
     }
@@ -419,7 +420,7 @@
           else this.banner(`${e.id === this.selfId ? '' : e.name + ' が'}宝箱を開けた！\n${what}`, 2600, 'good');
           break;
         }
-        case 'bossWarp': this.banner(`8分経過！\n${e.sec || 5}秒後にボス戦の場所へワープ！`, 3200, 'warn low'); break;
+        case 'bossWarp': this.banner(`${this._ow ? owMin() : Math.round(GC.MATCH_SECONDS / 60)}分経過！\n${e.sec || 5}秒後にボス戦の場所へワープ！`, 3200, 'warn low'); break;
         case 'boss': this.banner(`ボス戦！\nボス「${e.name}」出現！`, 3000, 'warn'); break;
         case 'warp': {
           // ボス戦の場所へワープ（自分の位置を合わせる）
@@ -452,6 +453,8 @@
       el.xp.style.width = Math.min(100, (v.xp / v.nd) * 100) + '%';
       el.lv.textContent = 'Lv ' + v.lv;
       el.time.textContent = mmss(v.tm);
+      const ow = !!(v.ow || (v.ow == null && this.o.overwhelm));
+      if (ow !== this._ow) { this._ow = ow; el.ow.classList.toggle('hidden', !ow); }
       el.phase.textContent = PHASE_LABEL[v.ph] || '';
       el.phase.classList.toggle('on', !!PHASE_LABEL[v.ph]);
       const me = v.P.find((p) => p[0] === this.selfId);
@@ -748,7 +751,7 @@
   DS.hooks.onGameStart = (p) => {
     start({
       stageIndex: p.stageIndex, members: p.members, selfId: p.selfId, isHost: p.isHost,
-      session: p.session, onExit: p.onExit, onLeave: p.onLeave,
+      session: p.session, onExit: p.onExit, onLeave: p.onLeave, overwhelm: !!p.overwhelm,
     });
     return true;
   };

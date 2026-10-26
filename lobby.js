@@ -106,6 +106,7 @@
             <div class="stage-info">
               <h2 class="stage-name" id="stage-name"></h2>
               <div class="stage-rec" id="stage-rec"></div>
+              <div class="ow-row hidden" id="stage-ow"></div>
               <p class="stage-desc" id="stage-desc"></p>
               <div class="stage-foes" id="stage-foes"></div>
             </div>
@@ -173,6 +174,12 @@
     }));
     $('#btn-mg-create', el).addEventListener('click', () => openCreateDialog(mgPick));
     $('#btn-solo', el).addEventListener('click', startSolo);
+    $('#stage-ow', el).addEventListener('click', (e) => {
+      if (!e.target.closest('.ow-chip')) return;
+      S.data.flags.owOff = !S.data.flags.owOff; S.persist();
+      toast(S.data.flags.owOff ? '圧倒モードを OFF にしました（いつもの8分の試合）' : '圧倒モードを ON にしました（3分でボス戦）', 'info');
+      updateStage(false);
+    });
     $('#btn-mission', el).addEventListener('click', () => DS.mission.open());
     $('#btn-limited', el).addEventListener('click', () => DS.mission.openLimited());
     $('#btn-tools', el).addEventListener('click', () => DS.mission.openTools());
@@ -207,6 +214,22 @@
   const cleared = (i) => (S.data.missions.stages[C.STAGES[i].key] || 0) > 0;
 
   /** 目安の強さと今の強さを比べる行 */
+  /* ---------- 圧倒モード（v22）：戦闘力が目安よりとても高いと、3分でボス戦 ---------- */
+  /** 表示（ok：条件を満たしている / on：使う設定 / canToggle：押して切りかえられる） */
+  function owRender(el, ok, on, canToggle) {
+    if (!el) return;
+    el.classList.toggle('hidden', !ok);
+    if (!ok) { el.innerHTML = ''; el.dataset.k = ''; return; }
+    const html = `<${canToggle ? 'button' : 'span'} class="ow-chip ${on ? 'on' : 'off'}">
+      <span class="ow-bolt" aria-hidden="true">${OW_ICON}</span>
+      <span class="ow-txt"><b>圧倒モード</b><small>${on ? `${Math.round(GC.OVERWHELM.seconds / 60)}分でボス戦！` : 'いつもの8分の試合'}</small></span>
+      <em>${on ? 'ON' : 'OFF'}</em></${canToggle ? 'button' : 'span'}>`;
+    if (el.dataset.k !== html) { el.dataset.k = html; el.innerHTML = html; }
+  }
+  const OW_ICON = '<svg viewBox="0 0 24 24"><path d="M14 2 L4 14 H11 L9 22 L20 9 H13 Z" fill="#ffe14d" stroke="#231a3a" stroke-width="2" stroke-linejoin="round"/></svg>';
+  /** 出撃するときに圧倒モードになるか */
+  function owActive(stage, members, off) { return !off && GC.overwhelmOk(stage, members); }
+
   function recHtml(i) {
     const t = GC.stageScale(i).target, st = S.getStats();
     const ok = (mine, need) => (mine >= need ? 'ok' : mine >= need * 0.6 ? 'near' : 'low');
@@ -227,6 +250,7 @@
     $('#stage-name').textContent = s.name;
     $('#stage-desc').textContent = s.desc;
     $('#stage-rec').innerHTML = recHtml(stageIndex);
+    owRender($('#stage-ow'), S.isStageOpen(stageIndex) && GC.overwhelmOk(stageIndex, [S.getStats()]), !S.data.flags.owOff, true);
     const ro = GC.stageRoster(stageIndex);
     const boss = GC.BOSSES[ro.boss];
     const mid = ro.midboss || 'bigZombie';
@@ -376,14 +400,16 @@
 
   /* ---------- ソロで出撃（通信なし） ---------- */
   function startSolo() {
-    if (DS.battle.active) return;
+    if (DS.battle.active || partyGuard()) return;
     if (!S.isStageOpen(stageIndex)) { toast('前のステージをクリアすると遊べます', 'error'); return; }
     const me = Object.assign({ id: 'solo', slot: 0, isHost: true }, myProfile());
-    DS.battle.start({ stageIndex, members: [me], selfId: 'solo', isHost: true, session: null, onExit: () => {} });
+    DS.battle.start({ stageIndex, members: [me], selfId: 'solo', isHost: true, session: null, onExit: () => {},
+      overwhelm: owActive(stageIndex, [me], S.data.flags.owOff) });
   }
 
   /* ---------- ロビー作成 ---------- */
   function openCreateDialog(miniGame) {
+    if (partyGuard()) return;
     if (!miniGame && !S.isStageOpen(stageIndex)) { toast('前のステージをクリアすると遊べます', 'error'); return; }
     const s = C.STAGES[stageIndex];
     const mg = miniGame && C.MINIGAMES.list.find((g) => g.key === miniGame);
@@ -406,7 +432,7 @@
             btn.disabled = true; btn.textContent = '作成中…';
             try {
               const sess = await DS.net.createLobby({ password: pw, stage: stageIndex, profile: myProfile(), maxStage: S.maxStage(),
-                mode: mg ? 'mini' : 'battle', mg: mg ? { game: mg.key } : null });
+                mode: mg ? 'mini' : 'battle', mg: mg ? { game: mg.key } : null, owOff: !!S.data.flags.owOff });
               m.close();
               if (DS.net.fellBackToLocal) toast('オンラインに接続できないため、ローカルモードで作成しました', 'info', 3500);
               openRoom(sess, pw);
@@ -423,6 +449,7 @@
   /* ---------- ロビー参加 ---------- */
   let joining = false;
   async function doJoin() {
+    if (partyGuard()) return;
     const id = $('#join-id').value.replace(/\D/g, '');
     const pw = $('#join-pass').value.trim();
     if (id.length !== 6) { toast(DS.net.message('badid'), 'error'); return; }
@@ -431,6 +458,7 @@
   }
   /** ロビーIDとパスワードで参加する（フレンドの招待からも使う） */
   async function joinLobbyById(id, pw) {
+    if (partyGuard()) return false;
     if (joining || session || (DS.battle && DS.battle.active) || (DS.minigame && DS.minigame.active)) return false;
     const btn = $('#btn-join');
     joining = true;
@@ -466,6 +494,12 @@
           <h2 class="room-title outline">ロビー</h2>
           <span class="net-chip" id="net-chip"></span>
         </header>
+        <div class="room-go" id="room-go">
+          <small>パーティー<br>のまま</small>
+          <button class="room-go-btn" data-go="1"><span class="room-go-ic">${A.navIcon('gacha')}</span>ガチャ</button>
+          <button class="room-go-btn" data-go="3"><span class="room-go-ic">${A.navIcon('equip')}</span>装備</button>
+          <button class="room-go-btn" data-go="0"><span class="room-go-ic">${A.navIcon('shop')}</span>ショップ</button>
+        </div>
         <div class="cred">
           <div class="cred-item"><small>ロビーID</small><b id="room-id"></b></div>
           <div class="cred-item"><small>パスワード</small>
@@ -486,6 +520,7 @@
         </div>
         <div class="room-mg hidden" id="room-mg"></div>
         <div class="stage-rec room-rec" id="room-rec"></div>
+        <div class="ow-row room-ow hidden" id="room-ow"></div>
         <p class="room-note" id="room-note"></p>
         <span class="room-diff" id="room-diff"></span>
         <div class="slots" id="slots"></div>
@@ -494,7 +529,8 @@
         <p class="room-status" id="room-status"></p>
         <button class="btn btn-big" id="room-action"></button>
       </div>`;
-    room.classList.remove('hidden');
+    room.classList.remove('hidden', 'min');
+    roomMin = false;
     requestAnimationFrame(() => room.classList.add('show'));
 
     $('#room-leave').addEventListener('click', confirmLeave);
@@ -520,12 +556,19 @@
       openStageList({ current: st.stage, max: st.maxStage != null ? st.maxStage : C.STAGES.length - 1, onPick: (i) => session.setStage(i), title: 'ステージを選ぶ' });
     });
     enableSwipe($('#room-stage'), (dir) => { if (session.isHost) session.setStage(session.state.stage + dir); });
+    $('#room-ow').addEventListener('click', (e) => {
+      if (!session || !session.isHost || !e.target.closest('.ow-chip')) return;
+      const on = !!session.state.owOff;   // 今 OFF なら ON にする
+      S.data.flags.owOff = !on; S.persist();
+      session.setOverwhelm(on);
+    });
     $('#room-action').addEventListener('click', onAction);
+    $('#room-go').addEventListener('click', (e) => { const b = e.target.closest('[data-go]'); if (b) minimizeRoom(+b.dataset.go); });
 
     sess.on('state', () => renderRoom());
     sess.on('joined', (m) => toast(`${m.name} が参加しました`, 'good'));
     sess.on('left', (m) => toast(`${m.name} が退出しました`));
-    sess.on('start', (st) => showStart(st));
+    sess.on('start', (st) => { if (roomMin) showRoomAgain(); showStart(st); });
     sess.on('closed', (reason) => {
       if (DS.battle && DS.battle.active) DS.battle.stop();
       if (DS.minigame && DS.minigame.active) DS.minigame.stop();
@@ -538,9 +581,58 @@
 
   function onPageHide() { if (session) session.leave(); }
 
+  /* ---------- パーティーに入ったまま、ガチャ・装備・ショップに行く（v22） ---------- */
+  let roomMin = false;
+  function minimizeRoom(screen) {
+    if (!session || !session.state || session.state.status !== 'waiting') return;
+    const me = session.me, wasReady = !session.isHost && me && me.ready;
+    roomMin = true;
+    $('#room').classList.add('min');
+    session.setAway(true);
+    if (DS.nav) DS.nav.go(screen);
+    updateRoomPill();
+    if (wasReady) toast('準備OKを外しました。もどったら、もう一度押してね', 'info', 2800);
+  }
+  /** ルームの画面を出し直す（装備が変わっていたら仲間にも伝える） */
+  function restoreRoom() {
+    if (!session) return;
+    showRoomAgain();
+    session.setAway(false, myProfile());
+  }
+  function showRoomAgain() {
+    roomMin = false;
+    $('#room').classList.remove('min');
+    updateRoomPill();
+  }
+  /** 下に出る「パーティーにもどる」ボタン */
+  function updateRoomPill() {
+    let pill = $('#room-pill');
+    $('#app').classList.toggle('has-room-pill', !!(session && roomMin));
+    if (!session || !roomMin) { if (pill) pill.remove(); return; }
+    if (!pill) {
+      pill = document.createElement('button');
+      pill.id = 'room-pill'; pill.className = 'room-pill';
+      pill.addEventListener('click', restoreRoom);
+      $('#app').appendChild(pill);
+    }
+    const st = session.state, mini = st.mode === 'mini';
+    pill.innerHTML = `<span class="room-pill-ic">${A.navIcon('lobby')}</span><span class="room-pill-txt"><b>${mini ? 'ミニゲーム' : 'パーティー'}にもどる</b><small>${mini ? '' : 'STAGE ' + C.STAGES[st.stage].no + '・'}${st.members.length}/${C.MAX_PLAYERS}人</small></span>`;
+  }
+  /** パーティーに入っている間は、ソロ出撃・別のロビーには行けない（ルームを出し直す） */
+  function partyGuard() {
+    if (!session) return false;
+    toast('パーティーに参加中です', 'info');
+    if (roomMin) restoreRoom();
+    return true;
+  }
+
   function closeRoom() {
     const room = $('#room');
     room.classList.remove('show');
+    roomMin = false;
+    room.classList.remove('min');
+    const pill = $('#room-pill'); if (pill) pill.remove();
+    $('#app').classList.remove('has-room-pill');
     setTimeout(() => { if (!session) { room.classList.add('hidden'); room.innerHTML = ''; } }, 250);
     session = null;
     window.removeEventListener('pagehide', onPageHide);
@@ -601,8 +693,11 @@
 
     const mini = st.mode === 'mini';
     $('#room').classList.toggle('mini', mini);
+    $('#room-go').classList.toggle('off', !waiting);
+    updateRoomPill();
     $('.room-title').textContent = mini ? 'ミニゲーム' : 'ロビー';
     ['#room-stage', '#room-rec', '#room-diff'].forEach((q) => $(q).classList.toggle('hidden', mini));
+    owRender($('#room-ow'), !mini && GC.overwhelmOk(st.stage, st.members), !st.owOff, host && waiting);
     $('#room-mg').classList.toggle('hidden', !mini);
     if (mini) renderRoomMg(st, host && waiting);
     if (!mini && lastRoomStage !== st.stage) {
@@ -636,7 +731,8 @@
         </div>`;
       }
       const isMe = m.id === session.selfId;
-      const badge = m.isHost ? '<span class="slot-badge host">HOST</span>'
+      const badge = m.away ? `<span class="slot-badge away">${m.isHost ? 'HOST・' : ''}おでかけ中</span>`
+        : m.isHost ? '<span class="slot-badge host">HOST</span>'
         : m.ready ? '<span class="slot-badge ready">準備OK</span>' : '<span class="slot-badge wait">準備中</span>';
       return `<div class="slot ${isMe ? 'me' : ''}" style="--pc:${color}">
         <div class="slot-top">P${i + 1}${m.isHost ? A.crown() : ''}${isMe ? '<em>あなた</em>' : ''}</div>
@@ -671,7 +767,8 @@
       btn.textContent = `出撃！（${st.members.length}/${C.MAX_PLAYERS}人）`;
       status.textContent = guests.length === 0
         ? '1人でも出撃できます。仲間を呼ぶなら ID とパスワードを伝えよう'
-        : readyN === guests.length ? '全員準備OK！出撃できます' : `仲間の準備を待っています（${readyN}/${guests.length}）`;
+        : readyN === guests.length ? '全員準備OK！出撃できます'
+          : guests.some((x) => x.away) ? `ガチャ・装備に行っている仲間がいます（準備OK ${readyN}/${guests.length}）` : `仲間の準備を待っています（${readyN}/${guests.length}）`;
     } else {
       const me = session.me;
       btn.disabled = false;
@@ -735,6 +832,7 @@
       setTimeout(() => {
         const payload = {
           stage: stg, stageIndex: st.stage, members: st.members, selfId: sess && sess.selfId, isHost: sess && sess.isHost, session: sess, loadout: S.getLoadout(),
+          overwhelm: !mini && owActive(st.stage, st.members, st.owOff),
           // バトルが終わってロビーに戻るとき
           onExit: () => { ov.remove(); if (sess && sess.isHost && !sess.ended) sess.endGame(); },
           // バトル中にロビーから抜けるとき（ゲスト）

@@ -311,7 +311,8 @@
         const mem = this.state.members.find((x) => x.id === id);
         if (!mem) return;
         if (m.t === 'g') this.emit('game', id, m.d);
-        else if (m.t === 'ready') { mem.ready = !!m.v; this._sync(); }
+        else if (m.t === 'ready') { mem.ready = !!m.v && !mem.away; this._sync(); }
+        else if (m.t === 'away') this._setAway(mem, m.v, m.p);
         else if (m.t === 'leave') this._remove(id, 'leave');
       });
       conn.onClose(() => { if (conn.memberId) this._remove(conn.memberId, 'disconnect'); });
@@ -346,6 +347,14 @@
       this._sync();
       this.emit('left', mem, reason);
     }
+    /** ガチャ・装備などに行っている（v22）。戻ったときは新しい装備（profile）に入れかえる */
+    _setAway(mem, v, p) {
+      if (this.state.status !== 'waiting') return;
+      mem.away = !!v;
+      if (mem.away && !mem.isHost) mem.ready = false;
+      if (p) Object.assign(mem, cleanProfile(p));
+      this._sync();
+    }
     _sync(extra) {
       const msg = Object.assign({ t: 'state', state: this.state }, extra);
       this.conns.forEach((c) => c.send(msg));
@@ -357,6 +366,12 @@
       const n = Math.max(1, Math.min(C.STAGES.length, (this.state.maxStage != null ? this.state.maxStage : C.STAGES.length - 1) + 1));
       this.state.stage = ((index % n) + n) % n;
       this.state.members.forEach((x) => { if (!x.isHost) x.ready = false; });
+      this._sync();
+    }
+    /** 圧倒モードを使う／使わない（ホストのみ・v22） */
+    setOverwhelm(on) {
+      if (!this.isHost || this.state.status !== 'waiting') return;
+      this.state.owOff = !on;
       this._sync();
     }
     /** ミニゲームのロビー：ゲームと制限時間を変える（ホストのみ） */
@@ -375,6 +390,7 @@
     start() {
       if (!this.canStart()) return false;
       this.state.status = 'playing';
+      this.state.members.forEach((x) => { x.away = false; });
       this.conns.forEach((c) => c.send({ t: 'start', state: this.state }));
       this.emit('state', this.state);
       this.emit('start', this.state);
@@ -384,7 +400,7 @@
     endGame() {
       if (!this.isHost) return;
       this.state.status = 'waiting';
-      this.state.members.forEach((x) => { if (!x.isHost) x.ready = false; });
+      this.state.members.forEach((x) => { if (!x.isHost) x.ready = false; x.away = false; });
       this._sync();
     }
 
@@ -392,6 +408,17 @@
     setReady(v) {
       if (this.isHost || !this.conn) return;
       this.conn.send({ t: 'ready', v: !!v });
+    }
+    /** パーティーに入ったまま、ガチャ・装備・ショップに行く／戻る（profile：戻ったときの装備） */
+    setAway(v, profile) {
+      if (this.ended) return;
+      if (this.isHost) {
+        const me = this.state.members.find((x) => x.id === this.selfId);
+        if (me) this._setAway(me, v, profile);
+      } else if (this.conn) {
+        if (v) this.conn.send({ t: 'ready', v: false });   // 古いホストでも準備OKは外れるように
+        this.conn.send({ t: 'away', v: !!v, p: profile || null });
+      }
     }
 
     /* ----- 共通 ----- */
@@ -435,7 +462,7 @@
     }
   }
 
-  async function createLobby({ password, stage = 0, profile, maxStage, mode, mg }) {
+  async function createLobby({ password, stage = 0, profile, maxStage, mode, mg, owOff }) {
     const T = await resolveTransport();
     const s = new Session('host', T);
     let lobbyId;
@@ -449,6 +476,7 @@
     s.state = {
       lobbyId, transport: T.name, stage, status: 'waiting', maxStage: maxStage != null ? maxStage : C.STAGES.length - 1,
       mode: mode === 'mini' ? 'mini' : 'battle', mg: mode === 'mini' ? cleanMg(mg) : null,
+      owOff: !!owOff,    // v22：圧倒モードを使わない（ホストの設定）
       members: [Object.assign({ id: 'host', slot: 0, isHost: true, ready: true }, cleanProfile(profile))],
     };
     s._startHeartbeat();

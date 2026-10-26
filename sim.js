@@ -96,6 +96,10 @@
       this.clock = 0;              // 一時停止中以外は進み続ける時計（エフェクト用）
       // 1人なら1倍、パーティーなら3倍の難易度
       this.partyDiff = (o.players || []).length > 1 ? GC.DIFFICULTY.party : GC.DIFFICULTY.solo;
+      // v22：圧倒モード。試合の時計（this.t）を tScale 倍の速さで進めて、8分の流れを3分に縮める
+      const OW = GC.OVERWHELM;
+      this.overwhelm = !!(o.overwhelm && OW);
+      this.tScale = this.overwhelm ? GC.MATCH_SECONDS / OW.seconds : 1;
       this.boxes = []; this.heals = []; this.boxTimer = 60;
       this.chests = [];   // 中ボスの宝箱
       this.bombs = [];    // ダンボールから出た爆弾
@@ -396,7 +400,7 @@
     xpMul() {
       let s = 0;
       this.players.forEach((p) => { s += 0.1 * (p.abilities.scroll || 0) + (p.pas.militaryBoots ? p.pas.militaryBoots.xp / 100 : 0); });
-      return 1 + s;
+      return (1 + s) * (this.overwhelm ? GC.OVERWHELM.xp || 1 : 1);
     }
     gainXp(n) {
       this.xp += n * this.xpMul();
@@ -659,7 +663,7 @@
 
       // ---- 時間と流れ ----
       if (this.phase === 'battle') {
-        this.t += dt;
+        this.t += dt * this.tScale;
         GC.MIDBOSS_TIMES.forEach((tm, i) => {
           if (this.midbossDone <= i && this.t >= tm) { this.midbossDone = i + 1; this.spawnMidboss(); }
         });
@@ -679,17 +683,17 @@
       if (this.phase === 'battle') {
         GC.MIDBOSS_TIMES.forEach((tm, i) => {
           if (this.rushDone <= i && this.t >= tm - GC.RUSH.before) {
-            this.rushDone = i + 1; this.rush = GC.RUSH.duration; this.rushTimer = 0; this.rushDir = rand(0, TAU);
+            this.rushDone = i + 1; this.rush = GC.RUSH.duration / this.tScale; this.rushTimer = 0; this.rushDir = rand(0, TAU);
             this.events.push({ type: 'rush' });
           }
         });
         // 1分ごとにダンボールを追加
-        this.boxTimer -= dt;
+        this.boxTimer -= dt * this.tScale;
         if (this.boxTimer <= 0) { this.boxTimer += 60; this.spawnBoxes(GC.BOXES.perMinute); }
       }
       if (this.rush > 0 && this.phase === 'battle') {
         this.rush -= dt; this.rushTimer -= dt;
-        if (this.rushTimer <= 0) { this.rushTimer = GC.RUSH.every; this.spawnRushPack(); }
+        if (this.rushTimer <= 0) { this.rushTimer = GC.RUSH.every / Math.sqrt(this.tScale); this.spawnRushPack(); }
       }
 
       // ---- 特殊スキル・パッシブの時間 ----
@@ -1207,7 +1211,7 @@
       // ドローン：近くの敵を狙って撃つ（命中率50%）（進化：発射数1.5倍・必中）
       if (S.drone) {
         const E = evo('drone');
-        const ox = p.x - 34, oy = p.y - 46 + Math.sin(this.t * 4) * 4;
+        const ox = p.x - 34, oy = p.y - 46 + Math.sin(this.clock * 4) * 4;
         if (!p.drone) p.drone = { x: ox, y: oy, tgt: null, miss: 0 };
         p.drone.x += (ox - p.drone.x) * Math.min(1, dt * 8); p.drone.y += (oy - p.drone.y) * Math.min(1, dt * 8);
         let t = p.drone.tgt;
@@ -1500,7 +1504,7 @@
       this.levelup = null; this.roulette = null;
       const stats = {};
       this.players.forEach((p) => { stats[p.id] = { kills: p.kills, coins: 300 * (p.abilities.coin || 0) }; });
-      this.result = { win, time: this.t, level: this.level, stats, stage: this.stageIndex };
+      this.result = { win, time: this.t / this.tScale, level: this.level, stats, stage: this.stageIndex, ow: this.overwhelm ? 1 : 0 };
       this.events.push({ type: 'end', result: this.result });
     }
 
@@ -1569,7 +1573,7 @@
       const altar = this.altar && this.phase === 'intro' && !this.ended
         ? [R(this.altar.x), R(this.altar.y), this.altar.r, +Math.max(0, this.introT).toFixed(1), 0, 0] : null;
       return {
-        tm: +this.t.toFixed(2), ph: this.phase, lv: this.level, xp: R(this.xp), nd: this.need,
+        tm: +(this.t / this.tScale).toFixed(2), ph: this.phase, ow: this.overwhelm ? 1 : 0, lv: this.level, xp: R(this.xp), nd: this.need,
         lu: this.levelup ? Object.keys(this.levelup.options).filter((id) => !this.levelup.chosen[id]) : null,
         P, E, K, Q, Z, O, X, W, boss, altar, BX, HL, CH, BM,
         rs: this.rush > 0 ? 1 : 0, wd: this.widowT > 0 ? 1 : 0, pd: this.partyDiff,

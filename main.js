@@ -26,6 +26,8 @@
     if (i === 3) DS.equip.update();
   }
 
+  DS.nav = { go, get current() { return current; } };
+
   function updateTop() {
     const st = S.getStats();
     $('#profile-name').textContent = S.data.name;

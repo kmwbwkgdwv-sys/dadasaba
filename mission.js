@@ -32,7 +32,7 @@
           <span class="dp">+${x.point}<small>pt</small></span>${rewardChip(x.reward)}
           ${x.claimed ? '<span class="lm-done">受取済</span>' : x.done ? `<button class="btn btn-small btn-green dl-claim" data-id="${x.id}">受け取る</button>` : '<span class="lm-not">未達成</span>'}
         </div>`).join('')}</div>
-      ${d.ready > 1 ? '<button class="btn btn-green lm-all" id="dl-all">まとめて受け取る</button>' : ''}`;
+`;
   }
   function achBody() {
     const list = S.achievementList();
@@ -44,7 +44,7 @@
         <span class="rw-multi">${rewardChips(a.reward)}</span>
         ${a.claimed ? '<span class="lm-done">受取済</span>' : a.ready ? `<button class="btn btn-small btn-green ach-claim" data-id="${a.id}">受け取る</button>` : '<span class="lm-not">未達成</span>'}
       </div>`).join('')}</div>
-      ${list.filter((a) => a.ready).length > 1 ? '<button class="btn btn-green lm-all" id="ach-all">まとめて受け取る</button>' : ''}`;
+`;
   }
   /** ミッションのバッジに出す数 */
   function readyCount() {
@@ -53,10 +53,25 @@
     return (st.clearN ? 1 : 0) + (st.killN ? 1 : 0) + S.achievementList().reduce((a, x) => a + (x.ready ? 1 : 0), 0) + S.dailyInfo().ready;
   }
 
+  /** デイリー・ミッション・ステージクリア・敵を倒す の受け取れるものを全部受け取る（v22） */
+  function claimAll() {
+    const got = [];
+    // 受け取ったことで次のものが受け取れるようになることもあるので、なくなるまで（念のため3回まで）
+    for (let i = 0; i < 3; i++) {
+      const n = got.length;
+      ['clear', 'kill'].forEach((k) => { const c = S.claimMission(k); if (c) got.push({ coins: c }); });
+      got.push(...S.claimAchievement());
+      got.push(...S.claimDaily());
+      if (got.length === n) break;
+    }
+    return got;
+  }
+
   function body() {
     const st = S.missionStatus();
     const dn = S.dailyInfo().ready, an = S.achievementList().filter((a) => a.ready).length + (st.clearN ? 1 : 0) + (st.killN ? 1 : 0);
-    const tabs = `<div class="seg ms-tabs">
+    const tabs = `${dn + an ? `<button class="btn btn-green ms-all" id="ms-all">まとめて受け取る<small>デイリーとミッション ${dn + an}件</small></button>` : ''}
+      <div class="seg ms-tabs">
         <button class="seg-btn ${tab === 'daily' ? 'active' : ''}" data-t="daily">デイリー${dn ? `<b class="dot-n">${dn}</b>` : ''}</button>
         <button class="seg-btn ${tab === 'main' ? 'active' : ''}" data-t="main">ミッション${an ? `<b class="dot-n">${an}</b>` : ''}</button></div>`;
     if (tab === 'daily') return tabs + dailyBody();
@@ -108,10 +123,14 @@
         redraw();
       }));
       $$('.dl-claim', m.el).forEach((b) => b.addEventListener('click', () => { const g = S.claimDaily(b.dataset.id); redraw(); if (g.length) showGot(g); }));
-      const dla = $('#dl-all', m.el); if (dla) dla.addEventListener('click', () => { const g = S.claimDaily(); redraw(); if (g.length) showGot(g, 'デイリーミッションの報酬'); });
+      const all = $('#ms-all', m.el);
+      if (all) all.addEventListener('click', () => {
+        const g = claimAll(); redraw();
+        if (g.length) showGot(g, `${g.length}個まとめて受け取り！`);
+        if (DS.lobby) DS.lobby.updateMissionBadge();
+      });
       const dlm = $('#dl-ms', m.el); if (dlm) dlm.addEventListener('click', () => { const g = S.claimDaily('ms'); redraw(); if (g.length) showGot(g, 'デイリーポイントのごほうび'); });
       $$('.ach-claim', m.el).forEach((b) => b.addEventListener('click', () => { const g = S.claimAchievement(b.dataset.id); redraw(); if (g.length) showGot(g); }));
-      const aa = $('#ach-all', m.el); if (aa) aa.addEventListener('click', () => { const g = S.claimAchievement(); redraw(); if (g.length) showGot(g, 'ミッションの報酬'); });
     };
     bind();
     const tick = setInterval(() => {
@@ -240,12 +259,15 @@
             ${x.claimed ? '<span class="lm-done">受取済</span>' : x.done ? `<button class="btn btn-small btn-green lm-claim" data-id="${x.id}">受け取る</button>` : '<span class="lm-not">未達成</span>'}
           </div>`).join('')}</div>`
         : `<div class="lm-locked">🔒 ログイン${day + 1}日目に解放されます<small>（あと${day + 1 - li.loginDays}日ログイン）</small></div>`}
-        ${li.ready > 1 ? '<button class="btn btn-green lm-all" id="lm-all">まとめて受け取る</button>' : ''}
+        ${li.ready + li.msReady > 1 ? '<button class="btn btn-green lm-all" id="lm-all">まとめて受け取る</button>' : ''}
         <p class="note dark">敵の数・ガチャ・合成などの「合計」は、ミッションが始まってからの数です。3つクリアで<b>S装備確定チケット</b>、20個以上クリアで<b>エピックS装備選択BOX</b>（好きなエピックのS装備を1つ）がもらえます。</p>`;
       $$('.lm-tab', m.el).forEach((b) => b.addEventListener('click', () => { day = +b.dataset.d; draw(); }));
       $$('.lm-claim', m.el).forEach((b) => b.addEventListener('click', () => { const g = S.claimLimited(b.dataset.id); draw(); if (g.length) showGot(g); }));
       const all = $('#lm-all', m.el);
-      if (all) all.addEventListener('click', () => { const g = S.claimLimited(); draw(); if (g.length) showGot(g, `${g.length}個のミッション報酬`); });
+      if (all) all.addEventListener('click', () => {
+        const g = S.claimLimited(); g.push(...S.claimLimitedMilestone()); draw();
+        if (g.length) showGot(g, `${g.length}個まとめて受け取り！`);
+      });
       const ms = $('#lm-ms-claim', m.el);
       if (ms) ms.addEventListener('click', () => { const g = S.claimLimitedMilestone(); draw(); if (g.length) showGot(g, '達成ごほうび'); });
     };
