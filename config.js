@@ -125,7 +125,7 @@ DS.config = {
       desc: '近くの敵に自動で狙いをつけて、剣を振って斬る（90度くらい）。★が上がるたびに攻撃範囲が広がる。',
       weapon: { pattern: 'swing', range: 'short' },
       traits: ['近距離', 'オートエイム'],
-      passive: { name: '大回転斬り', desc: '15秒に1度、全方向に大きく回転斬りをする', cd: 15, range: 2.2, dmg: 3.0 },
+      passive: { name: '大回転斬り', desc: '15秒に1度、全方向に大きく回転斬りをする', cd: 15, range: 1.6, dmg: 3.0 },   // v20：範囲 2.2倍 → 1.6倍（エネルギーブレードに合わせた）
     },
     revolver: {
       slot: 'weapon', name: 'リボルバー',

@@ -296,7 +296,7 @@
       }
 
       // ---- エフェクト（一度見たものを短い間だけ表示） ----
-      const SND = { 0: 'zap', 2: 'kill', 3: 'boss', 4: 'shot', 6: 'swing', 8: 'box', 9: 'heal', 11: 'swing', 12: 'boss', 15: 'zap', 16: 'revive', 18: 'boss', 19: 'zap', 20: 'click', 21: 'levelup', 22: 'box', 23: 'heal' };
+      const SND = { 0: 'zap', 2: 'kill', 3: 'boss', 4: 'shot', 6: 'swing', 8: 'box', 9: 'heal', 11: 'swing', 12: 'boss', 15: 'zap', 16: 'revive', 18: 'boss', 19: 'zap', 20: 'click', 21: 'levelup', 22: 'box', 23: 'heal', 24: 'swing' };
       for (const f of view.X) {
         if (this.seenFx.has(f[0])) continue;
         this.seenFx.set(f[0], { f, t0: now });
@@ -742,6 +742,23 @@
         c.strokeStyle = `rgba(63,224,255,${0.7 * a})`; c.lineWidth = 20;
         c.beginPath(); c.arc(0, 0, r - 6, sweep - 1.2, sweep); c.stroke();
         c.restore();
+      } else if (k === 24) { // エネルギーブレード：まわりを一掃する光の刃
+        const dur = 0.45, a = 1 - age / dur;
+        if (a <= 0) return;
+        const R = r || 150, rr = R * Math.min(1, 0.35 + age / dur * 1.3);
+        const pl = P && P.find((q) => q[1] === o);
+        const cx = pl ? pl[2] : x, cy = pl ? pl[3] : y;
+        c.fillStyle = `rgba(120,240,255,${0.16 * a})`; c.beginPath(); c.arc(cx, cy, rr, 0, TAU); c.fill();
+        c.lineCap = 'round';
+        for (let i = 0; i < 6; i++) {
+          const a0 = age * 9 + i * TAU / 6;
+          c.strokeStyle = `rgba(140,250,255,${0.9 * a})`; c.lineWidth = 9;
+          c.beginPath(); c.arc(cx, cy, rr * 0.92, a0, a0 + 0.7); c.stroke();
+          c.strokeStyle = `rgba(255,255,255,${a})`; c.lineWidth = 3;
+          c.beginPath(); c.arc(cx, cy, rr * 0.92, a0 + 0.05, a0 + 0.62); c.stroke();
+        }
+        c.lineCap = 'butt';
+        c.strokeStyle = `rgba(90,200,255,${0.8 * a})`; c.lineWidth = 3; c.beginPath(); c.arc(cx, cy, rr, 0, TAU); c.stroke();
       } else if (k === 23) { // 楽器の広場を置いた
         const a = 1 - age / 0.6;
         if (a <= 0) return;

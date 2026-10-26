@@ -779,6 +779,14 @@
       + `<path d="M24 20 Q28 24 26 28 Q30 34 24 38 Q18 42 13 37 Q8 32 12 26 Q15 21 20 23 Q21 19 24 20 Z" fill="#ff8a3d" stroke="${O}" stroke-width="2.4" stroke-linejoin="round"/>`
       + `<circle cx="19" cy="31" r="3" fill="${O}"/><path d="M24 27 L29 22" stroke="#fff3c2" stroke-width="1.6"/>`
       + `<text x="36" y="38" font-size="12" font-weight="900" text-anchor="middle" fill="#ff4f9a" stroke="${O}" stroke-width="0.8">♪</text>`, '#ffd6ee'),
+    // v19 エネルギーブレード：光る刃と回転の輪
+    energyBlade: () => box(`<circle cx="24" cy="24" r="15" fill="none" stroke="#5ec8ff" stroke-width="3" stroke-dasharray="9 5"/>`
+      + `<path d="M14 34 L31 13 Q34 10 36 12 Q38 14 35 17 L18 37 Z" fill="#c9fbff" stroke="${O}" stroke-width="2.4" stroke-linejoin="round"/>`
+      + `<path d="M20 30 L32 15" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/><path d="M12 32 L19 39" stroke="${O}" stroke-width="4" stroke-linecap="round"/>`, '#d9f1ff'),
+    // v19 見切り：よける人のかげと「MISS」
+    dodge: () => box(`<circle cx="18" cy="15" r="4.5" fill="#c9c3e6" opacity=".7"/><path d="M12 36 L16 22 L22 26 L20 36" fill="none" stroke="#c9c3e6" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" opacity=".7"/>`
+      + `<circle cx="29" cy="13" r="4.5" fill="#5b5fd8" stroke="${O}" stroke-width="2"/><path d="M23 37 L27 21 L33 25 L32 37" fill="none" stroke="#5b5fd8" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>`
+      + `<path d="M36 18 L42 18 M37 24 L43 24 M36 30 L41 30" stroke="#2f7bf0" stroke-width="2.4" stroke-linecap="round"/>`, '#e8e4ff'),
     // v17 ガス注入：ガスボンベと速さの線
     gas: () => box(`<rect x="17" y="13" width="14" height="26" rx="6" fill="#4fd1a0" stroke="${O}" stroke-width="2.6"/><rect x="21" y="8" width="6" height="6" rx="1.5" fill="#c9c3e6" stroke="${O}" stroke-width="2"/>`
       + `<path d="M20 22 H28 M20 27 H28" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>`

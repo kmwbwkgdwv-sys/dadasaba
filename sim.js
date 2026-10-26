@@ -351,6 +351,11 @@
         this.fx.push({ id: this.nextId++, k: 15, x: p.x, y: p.y, rt: this.clock, o: p.slot });
         return;
       }
+      // 見切り：★ごとに5%の確率で攻撃をよける（ダメージなし。赤★1で30%）
+      if (p.abilities.dodge && Math.random() < 0.05 * p.abilities.dodge) {
+        if (!(this.clock - (p.missFx || -9) < 0.6)) { p.missFx = this.clock; this.fx.push({ id: this.nextId++, k: 20, x: p.x, y: p.y, rt: this.clock, o: p.slot }); }
+        return;
+      }
       // ハイブーツ：10%の確率で攻撃を無効にする
       if (p.pas.highBoots && Math.random() < p.pas.highBoots.chance) {
         p.buff.inv = Math.max(p.buff.inv, 0.15);
@@ -1289,6 +1294,18 @@
             const a = Math.atan2(t.y - p.y, t.x - p.x) + (i - (targets.length - 1) / 2) * 0.45;
             this.shots.push({ id: this.nextId++, kind: 4, owner: p.id, x: p.x, y: p.y - 8, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, sp, tgt: t, dmg, er, life: R.range * 1.5 / sp, r: 10 * am });
           });
+        }
+      }
+      // エネルギーブレード：まわりの敵を一掃（★ごとに1秒短く・広く。進化：3秒ごと・さらに広く強く）
+      if (S.energyBlade) {
+        const B = SP.energyBlade, E = evo('energyBlade'), lv = st('energyBlade');
+        const cd = E ? EV.energyBlade.cd : Math.max(1, B.cd - B.cdStep * (lv - 1));
+        if (this.ready(p, 'energyBlade', cd, dt)) {
+          const r = (B.r + B.rStep * (lv - 1)) * (E ? EV.energyBlade.r : 1) * am;
+          const dmg = atk * B.dmg * (E ? EV.energyBlade.dmg : 1);
+          this.enemiesNear(p.x, p.y, r).forEach((e) => this.damageEnemy(e, dmg, p.id));
+          this.hitBoxes(p.x, p.y, r);
+          this.fx.push({ id: this.nextId++, k: 24, x: p.x, y: p.y, r, rt: this.clock, o: p.slot });
         }
       }
       // 楽器：その場に音楽の広場を置く（前の広場は消える）。中の味方にバフ（ダメージなし）

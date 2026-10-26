@@ -15,6 +15,10 @@ const molotovN = (s) => GC_SP().molotov.bottles + GC_SP().molotov.moreAt.filter(
 // v17：ロケットの数（★3・★5 で1発ずつ増える。赤★1 は EVOLVE の数）
 const rocketN = (s) => (s >= 6 ? GC_EV().rocket.count : GC_SP().rocket.count + GC_SP().rocket.moreAt.filter((n) => s >= n).length);
 // v17：楽器のバフ（★ごと）。atk：攻撃+% / cut：受けるダメージ-% / regen：毎秒HP回復% / spd：攻撃速度+%
+// v20：ライトセイバーの届く長さ（人分）
+const saberR = (s) => Math.round(GC_SP().lightsaber.r * (1 + GC_SP().lightsaber.rStep * (Math.min(6, s) - 1)) * (s >= 6 ? GC_EV().lightsaber.range : 1) / 20 * 10) / 10;
+// v19：エネルギーブレードの範囲（人分）
+const bladeR = (s) => Math.round((GC_SP().energyBlade.r + GC_SP().energyBlade.rStep * (Math.min(6, s) - 1)) * (s >= 6 ? GC_EV().energyBlade.r : 1) / 20 * 10) / 10;
 const musicR = (s) => Math.round((GC_SP().music.r + GC_SP().music.rStep * (Math.min(6, s) - 1)) * (s >= 6 ? GC_EV().music.r : 1) / 20 * 10) / 10;   // 広場の広さ（人分）
 const musicBuffText = (s) => { const b = GC_SP().music.buffs[Math.min(6, s)] || {}; return [`攻撃+${b.atk}%`, b.cut ? `受けるダメージ-${b.cut}%` : '', b.regen ? `毎秒HP${b.regen}%回復` : '', b.spd ? `攻撃速度+${b.spd}%` : ''].filter(Boolean).join('・'); };
 
@@ -298,8 +302,8 @@ DS.gameConfig = {
       : `1秒ごとにクナイを${s}本投げる。敵を追いかけて必ず当たる（ATK×${GC_SP().kunai.dmg}）`) },
     shotgun:  { name: 'ショットガン', weapon: true, desc: (s) => (s >= 6 ? `【進化】${GC_EV().shotgun.cd}秒ごとに大きく散弾を撃ち続ける（${GC_EV().shotgun.pellets}発。全弾命中でATK×${(GC_SP().shotgun.total * Math.pow(1.1, 5)).toFixed(2)}）`
       : `${(1.5 - 0.2 * (s - 1)).toFixed(1)}秒ごとに散弾を撃つ。全弾命中でATK×${(GC_SP().shotgun.total * Math.pow(1.1, s - 1)).toFixed(2)}`) },
-    lightsaber: { name: 'ライトセイバー', weapon: true, desc: (s) => (s >= 6 ? `【進化】${GC_EV().lightsaber.cd}秒ごとに全方向を回転斬りし続ける。範囲${Math.round((1 + 0.15 * 5) * GC_EV().lightsaber.range * 100)}%（ATK×${(GC_SP().lightsaber.dmg * Math.pow(1.2, 5)).toFixed(2)}）`
-      : `${(1 - 0.1 * (s - 1)).toFixed(1)}秒ごとに近くの敵を自動で狙って斬る（90度）。範囲${Math.round((1 + 0.15 * (s - 1)) * 100)}%（ATK×${(GC_SP().lightsaber.dmg * Math.pow(1.2, s - 1)).toFixed(2)}）`) },
+    lightsaber: { name: 'ライトセイバー', weapon: true, desc: (s) => (s >= 6 ? `【進化】${GC_EV().lightsaber.cd}秒ごとに全方向を回転斬りし続ける（範囲${saberR(6)}人分、ATK×${(GC_SP().lightsaber.dmg * Math.pow(1.2, 5)).toFixed(2)}）`
+      : `${(1 - 0.1 * (s - 1)).toFixed(1)}秒ごとに近くの敵を自動で狙って斬る（90度・範囲${saberR(s)}人分、ATK×${(GC_SP().lightsaber.dmg * Math.pow(1.2, s - 1)).toFixed(2)}）`) },
     revolver: { name: 'リボルバー',   weapon: true, desc: (s) => (s >= 6 ? `【進化】${GC_EV().revolver.cd}秒ごとに近くの敵を撃ち抜き続ける（ATK×${(GC_SP().revolver.dmg * Math.pow(1.2, 5)).toFixed(2)}）`
       : `0.8秒ごとに近くの敵1体を撃ち抜く（ATK×${(GC_SP().revolver.dmg * Math.pow(1.2, s - 1)).toFixed(2)}）`) },
     minigun:  { name: 'ミニガン',     weapon: true, desc: (s) => (s >= 6 ? `【進化】リロードなしで、1秒に${GC_EV().minigun.rate}発ずつ撃ち続ける（1発 ATK×${GC_SP().minigun.dmg}）`
@@ -320,6 +324,8 @@ DS.gameConfig = {
       : `${GC_SP().rocket.cd}秒ごとに近くの敵へロケットを${rocketN(s)}発撃つ。当たると爆発してまわりの敵にATK×${(GC_SP().rocket.dmg + GC_SP().rocket.dmgStep * (s - 1)).toFixed(1)}（爆発の大きさ${Math.round((GC_SP().rocket.r + GC_SP().rocket.rStep * (s - 1)) / 20 * 10) / 10}人分）`) },
     music:    { name: '楽器',         desc: (s) => (s >= 6 ? `【進化】その場に大きな音楽の広場を作る（範囲${musicR(6)}人分）。中にいる味方全員：${musicBuffText(6)}（ダメージはなし）`
       : `その場に音楽の広場を作る（範囲${musicR(s)}人分・${GC_SP().music.cd}秒ごとに置き直す）。中にいる味方全員：${musicBuffText(s)}（ダメージはなし・重ならない）`) },
+    energyBlade: { name: 'エネルギーブレード', desc: (s) => (s >= 6 ? `【進化】${GC_EV().energyBlade.cd}秒ごとに大きなエネルギーの刃で周りの敵を一掃し続ける（ATK×${GC_SP().energyBlade.dmg * GC_EV().energyBlade.dmg}、範囲${bladeR(6)}人分）`
+      : `${GC_SP().energyBlade.cd - GC_SP().energyBlade.cdStep * (s - 1)}秒ごとにエネルギーの刃で周りの敵を一掃する（ATK×${GC_SP().energyBlade.dmg}、範囲${bladeR(s)}人分）`) },
     gravity:  { name: '重力発生機',   desc: (s) => (s >= 6 ? `【進化】範囲${Math.round(GC_EV().gravity.r * 100)}%の重力で敵を90%遅くし、毎秒ATK×${((GC_SP().gravity.dps + GC_SP().gravity.dpsStep * 5) * GC_EV().gravity.dps).toFixed(2)}`
       : `周りの敵を${Math.round(Math.min(0.9, 0.5 + 0.1 * (s - 1)) * 100)}%遅くし、毎秒ATK×${(GC_SP().gravity.dps + GC_SP().gravity.dpsStep * (s - 1)).toFixed(2)}`) },
   },
@@ -328,7 +334,7 @@ DS.gameConfig = {
     kunai:    { cd: 1.0, dmg: 1.15, speed: 760, range: 620 },
     shotgun:  { cd: 1.5, cdStep: 0.2, pellets: 7, spread: 0.55, total: 2.3, mult: 1.1, speed: 950, range: 380, aim: 1.25 },   // v15：近くの敵に向けて狭く撃つ（aim：狙う距離の倍率）
     // ライトセイバー：向いている方向に arc（ラジアン）の扇形で斬る。★が上がるたびに範囲が rStep ずつ広がる
-    lightsaber: { cd: 1.0, cdStep: 0.1, r: 100, rStep: 0.15, arc: Math.PI / 2, dmg: 1.15, mult: 1.2 },
+    lightsaber: { cd: 1.0, cdStep: 0.1, r: 90, rStep: 0.12, arc: Math.PI / 2, dmg: 1.15, mult: 1.2 },   // v20：エネルギーブレードに合わせて範囲を少し狭くした（100＋15%/★ → 90＋12%/★）
     // リボルバー：0.8秒ごとに1発（★を上げても間隔は変わらず、ダメージが上がる）
     revolver: { cd: 0.8, cdStep: 0, dmg: 1.15, mult: 1.2, range: 520 },
     // ミニガン：fire 秒撃ち続けて reload 秒リロード（★ごとに reloadStep 短く）。1秒に rate 発、1発 ATK×dmg
@@ -346,6 +352,8 @@ DS.gameConfig = {
     gravity:  { r: 150, dps: 0.23, dpsStep: 0.23, slow: 0.5, slowStep: 0.1 },
     // v17 ロケット：cd 秒ごとに count 発（★3・★5 で1発ずつ増える）。爆発 ATK×dmg（★ごとに dmgStep）、爆発の半径 r（★ごとに rStep）
     rocket:   { cd: 3, count: 1, moreAt: [3, 5], dmg: 2.0, dmgStep: 0.4, r: 60, rStep: 12, speed: 520, range: 700, turn: 5 },
+    // v19 エネルギーブレード：cd 秒ごと（★ごとに cdStep 短く）に、まわり半径 r（★ごとに rStep 広く）の敵に ATK×dmg（雑魚は一撃）
+    energyBlade: { cd: 10, cdStep: 1, r: 100, rStep: 15, dmg: 8 },   // v20：範囲を狭くした（150＋30/★ → 100＋15/★）
     // v17 楽器：cd 秒ごとに、その場に半径 r の広場を置き直す（前の広場は消える）。中にいる味方にバフ（重ならない＝いちばん高いものだけ）
     music:    { cd: 10, r: 170, rStep: 15, buffs: [null,   // 広場の半径 r（★が上がるごとに rStep 広がる）
       { atk: 10 }, { atk: 12 }, { atk: 14, cut: 14 }, { atk: 16, cut: 16 }, { atk: 18, cut: 18, regen: 1 },
@@ -367,6 +375,7 @@ DS.gameConfig = {
     gravity:  { r: 1.6, dps: 2 },                          // 範囲1.6倍・ダメージ2倍
     rocket:   { cd: 1.2, count: 5, scale: 1.3 },           // 1.2秒ごとに5発・爆発1.3倍（ダメージ・大きさは★6段目まで上がる）
     music:    { r: 1.2 },                                  // 広場さらに1.2倍（バフは buffs の6番目＝赤★1）
+    energyBlade: { cd: 3, r: 1.2, dmg: 1.5 },              // 3秒ごと・範囲さらに1.2倍・ダメージ1.5倍
   },
 
   // ---- アビリティ（3枠） ----
@@ -378,6 +387,7 @@ DS.gameConfig = {
     scroll:  { name: '巻物',             desc: (s) => `チーム全体の経験値 +${10 * s}%` },
     coin:    { name: 'コイン獲得',       desc: (s) => `試合終了後にコイン +${300 * s}` },
     expand:  { name: '拡大モジュール',   desc: (s) => `攻撃の当たり判定が ${10 * s}% 大きくなる` },
+    dodge:   { name: '見切り',           desc: (s) => `敵の攻撃を ${5 * s}% の確率でよける（よけた攻撃はダメージなし）` },   // v19。v20で ★ごとに10% → 5%
     gas:     { name: 'ガス注入',         desc: (s) => `弾の速さが ${10 * s}% 速くなる（クナイ・散弾・ミニガン・ロケット・火炎瓶など）` },   // v17
   },
 
