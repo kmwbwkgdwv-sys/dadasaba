@@ -163,7 +163,7 @@ DS.config = {
     eternalSuit: {
       slot: 'armor', name: 'エターナルバトルスーツ', s: true,
       desc: 'とても軽く動きやすいバトルスーツ。',
-      bonus: { spd: 10, hp: 10 },
+      bonus: { spd: 10, hp: 35 },   // v24：HP +10% → +35%（S装備が普通のエピック（鎧 HP+30%）より弱くならないように）
       passive: { name: '不死の加護', desc: '1度だけ、倒れても復活できる（復活時3秒無敵）', inv: 3, hp: 0.5 },
     },
     destroyerCoat: {
@@ -187,13 +187,14 @@ DS.config = {
     stellaBelt: {
       slot: 'belt', name: 'ステラベルト', s: true,
       desc: '星の力を宿すベルト。周囲の敵の攻撃速度を下げる。',
+      bonus: { atk: 45 },           // v24：ATK +45% を追加（普通のエピックの破壊者ベルト（ATK+30%・パッシブ+10%）より強く）
       aura: { radius: 160, enemyAtkSpd: -10 },
       passive: { name: 'メテオ', desc: '45秒に1度、隕石を落として敵に当てる', cd: 45, r: 170, dmg: 12 },
     },
     eternalBelt: {
       slot: 'belt', name: 'エターナルベルト', s: true,
       desc: '尽きない力を秘めたベルト。攻撃力が上がる。',
-      bonus: { atk: 30 },
+      bonus: { atk: 50 },           // v24：ATK +30% → +50%
       passive: { name: '不屈', desc: '60秒に1度、攻撃を受けたときから3秒間無敵になる', cd: 60, dur: 3 },
     },
     destroyerBelt: {
@@ -223,7 +224,7 @@ DS.config = {
     eternalBoots: {
       slot: 'boots', name: 'エターナルブーツ', s: true,
       desc: '羽のように軽いブーツ。移動速度が上がる。',
-      bonus: { spd: 10 },
+      bonus: { spd: 10, hp: 50, atk: 20 },   // v24：HP +50%・ATK +20% を追加（軍用ブーツ・ハイブーツより弱くならないように）
       passive: { name: '再生', desc: '毎秒HPを1%回復する', heal: 0.01 },
     },
     frostBoots: {
