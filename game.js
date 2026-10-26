@@ -209,7 +209,15 @@
       window.addEventListener('resize', this._rs);
 
       const canvas = this.el.canvas;
+      // ジョイスティックを元に戻す（指を離したのに届かなかったときなどに、動きっぱなしにならないように）
+      this.resetJoy = () => {
+        this.joy.id = null; this.joy.x = 0; this.joy.y = 0;
+        if (this.joyFixed) this.el.knob.style.transform = 'translate(-50%,-50%)';
+        else this.el.joy.classList.add('hidden');
+      };
       canvas.addEventListener('pointerdown', (e) => {
+        // 前の指の「離した」が届いていなかったら、新しくさわった指に切りかえる
+        if (this.joy.id != null && this.joy.id !== e.pointerId) this.resetJoy();
         if (this.joy.id != null) return;
         const rb = root.getBoundingClientRect();
         this.joy.id = e.pointerId;
@@ -236,12 +244,19 @@
       });
       const end = (e) => {
         if (e.pointerId !== this.joy.id) return;
-        this.joy.id = null; this.joy.x = 0; this.joy.y = 0;
-        if (this.joyFixed) this.el.knob.style.transform = 'translate(-50%,-50%)';
-        else this.el.joy.classList.add('hidden');
+        this.resetJoy();
       };
       canvas.addEventListener('pointerup', end);
       canvas.addEventListener('pointercancel', end);
+      canvas.addEventListener('lostpointercapture', end);
+      // レベルアップ画面などが上に出ていても、指を離したことを必ず受け取る（画面全体で見る）
+      this._pu = end;
+      window.addEventListener('pointerup', this._pu, true);
+      window.addEventListener('pointercancel', this._pu, true);
+      // アプリを切りかえた・画面が隠れたときも止める
+      this._blur = () => this.resetJoy();
+      window.addEventListener('blur', this._blur);
+      document.addEventListener('visibilitychange', this._blur);
       root.querySelector('.bt-menu').addEventListener('click', () => this.toggleMenu());
     }
     inputVec() {
@@ -505,6 +520,7 @@
 
     /* ---------- レベルアップ ---------- */
     showLevelup(seq, opts) {
+      if (this.resetJoy) this.resetJoy();   // レベルアップ画面が出たら、ジョイスティックを離したことにする
       if (DS.sound) DS.sound.play('levelup');
       this.lvSeq = seq; this.picked = false;
       const el = this.el.lvl;
@@ -527,6 +543,7 @@
     pick(i) {
       if (this.picked) return;
       this.picked = true;
+      if (this.resetJoy) this.resetJoy();
       if (this.isHost) this.sim.choose(this.selfId, this.lvSeq, i);
       else this.session.sendGame({ k: 'pick', seq: this.lvSeq, i });
       this.el.lvl.innerHTML = '<div class="lv-title outline">LEVEL UP!</div><div class="lv-wait">仲間の選択を待っています…</div>';
@@ -536,6 +553,7 @@
     // 時間が止まっている間に、自分のスキル・アビリティが並んだリールが回って、★が上がるものが決まる
     // 結果はホストが先に決めている（e.plan）。止まる場所をそこに合わせて回す
     showRoulette(e) {
+      if (this.resetJoy) this.resetJoy();
       const el = this.el.roul;
       clearTimeout(this.rlTimer);
       this.rlShownAt = performance.now(); this.rlDone = false; this.rlPlan = null; this.rlCell = -1;
@@ -609,6 +627,7 @@
     /* ---------- メニュー ---------- */
     toggleMenu() {
       if (this.ended) return;
+      if (this.resetJoy) this.resetJoy();
       const m = this.el.menu;
       if (!m.classList.contains('hidden')) { m.classList.add('hidden'); this.menuPaused = false; return; }
       const solo = !this.session;
@@ -707,6 +726,8 @@
       window.removeEventListener('keydown', this._kd);
       window.removeEventListener('keyup', this._ku);
       window.removeEventListener('resize', this._rs);
+      if (this._pu) { window.removeEventListener('pointerup', this._pu, true); window.removeEventListener('pointercancel', this._pu, true); }
+      if (this._blur) { window.removeEventListener('blur', this._blur); document.removeEventListener('visibilitychange', this._blur); }
       if (this.session) { this.session.off('game', this.onGame); this.session.off('left', this.onLeft); }
       if (this.root) this.root.remove();
     }
