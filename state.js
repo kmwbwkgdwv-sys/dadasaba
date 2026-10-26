@@ -231,6 +231,12 @@
     s.ach = Object.assign({}, s.ach && typeof s.ach === 'object' ? s.ach : {});
     if ((old.version || 1) < 6) s.stats.charsGot = Math.max(s.stats.charsGot, Object.values(s.chars).reduce((a, n) => a + (n | 0), 0));
     if (!s.daily || typeof s.daily !== 'object' || typeof s.daily.day !== 'string') s.daily = null;
+    else {
+      // v25：Firebase は空の {} を保存しないので、クラウドから読み込んだデータでは claimed・ms が無くなっていることがある
+      //（そのままだとデイリーミッションを開いたところで止まり、引き継いだ端末でクラウド保存が動かなくなっていた）
+      s.daily = { day: s.daily.day, base: s.daily.base && typeof s.daily.base === 'object' ? s.daily.base : null,
+        claimed: Object.assign({}, s.daily.claimed), ms: Object.assign({}, s.daily.ms) };
+    }
     if (!s.shop || typeof s.shop !== 'object' || !Array.isArray(s.shop.items)) s.shop = null;
     s.friendId = typeof s.friendId === 'string' ? s.friendId.replace(/\D/g, '').slice(0, 9) : '';
     const pt = emptyPity();
@@ -737,6 +743,24 @@
   }
   /** クラウド保存用のデータ */
   function exportSave() { return JSON.parse(JSON.stringify(save)); }
+  function hashStr(t) { let h = 5381; for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0; return h; }
+  /** v25：セーブデータのまとめ（端末どうしでデータがちがうときに見せる・くらべる）。data を省略すると今のデータ */
+  function summaryOf(data) {
+    const keep = save;
+    try {
+      // 今のデータも同じように整えてからくらべる（クラウドに保存すると、0 や空のものの形が少し変わるため）
+      save = normalize(JSON.parse(JSON.stringify(data || keep)));
+      const st = getStats();
+      return { cleared: progressOf(save), atk: st.atk, hp: st.hp, coins: save.coins | 0, lv: accountInfo().lv,
+        items: Object.values(save.inventory || {}).reduce((a, n) => a + (n | 0), 0), at: save.updatedAt || 0,
+        // 装備・レベル・キャラ・設計図・エッセンス・チケット・クリアしたステージ（「何か進んだか」をくらべるため。ログイン日などは入れない）
+        res: hashStr(JSON.stringify([save.inventory, save.levels, save.chars, save.charLv, save.blueprints, save.essence, save.tickets, save.coins, save.missions && save.missions.stages, save.equipped, save.char])) };
+    } catch (e) {
+      return null;
+    } finally {
+      save = keep;
+    }
+  }
 
   // ---------- アカウントレベル ----------
   /** { lv, xp: 今のレベルでたまった経験値, need: 次のレベルまでの経験値, max } */
@@ -1205,7 +1229,7 @@
     canGive, takeItem, putItem, validTradeKey, charOfKey,
     addChar, setChar, setLook, charInfo, charList, charGachaUnlocked, useTicket,
     progress, maxStage, isStageOpen, fullRarity, recordMinigame,
-    inventoryList, persist, resetSave, wipeLocal, replaceSave, exportSave, normalize,
+    inventoryList, persist, resetSave, wipeLocal, replaceSave, exportSave, summaryOf, normalize,
     recordMatch, missionStatus, claimMission,
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
   };

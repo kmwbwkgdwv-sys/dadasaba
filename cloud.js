@@ -7,6 +7,7 @@
  *  ・初回起動時にプレイヤーIDとパスワードを発行し、保存するよう警告します
  *  ・データが変わると自動でクラウドに保存します
  *  ・別の端末では ID とパスワードを入れるとデータを復元できます
+ *  ・v25：スマホとパソコンなど、いくつもの端末で同じデータを使えます（下の「同期」）
  *
  *  Firebase 未設定のときは「テストモード」になり、同じブラウザの中だけで
  *  発行・復元の流れを試せます（別の端末には引き継げません）。
@@ -74,6 +75,14 @@
       if (!r.ok) throw err(r.status === 401 ? 'auth' : 'server');
       return r.json();
     },
+    /** v25：クラウドのデータの番号（rev）だけを読む（小さいのですぐ読める）。データがなければ null */
+    async getRev(a, keepalive) {
+      const url = `${CL.databaseURL.replace(/\/$/, '')}/saves/${a.uid}/rev.json?auth=${encodeURIComponent(a.idToken)}`;
+      const r = await fetch(url, { keepalive: !!keepalive }).catch(() => { throw err('network'); });
+      if (!r.ok) throw err(r.status === 401 ? 'auth' : 'server');
+      const v = await r.json();
+      return typeof v === 'number' ? v : null;
+    },
     /** アカウント削除：保存データを消してから、ログイン情報も消す */
     async remove(a) {
       const r = await fetch(FB.url(a.uid, a.idToken), { method: 'DELETE' }).catch(() => { throw err('network'); });
@@ -104,6 +113,7 @@
     async refresh(a) { return a; },
     async put(a, data) { const db = fakeDb(); db.saves[a.uid] = data; fakeSave(db); },
     async get(a) { return fakeDb().saves[a.uid] || null; },
+    async getRev(a) { const d = fakeDb().saves[a.uid]; return d && typeof d.rev === 'number' ? d.rev : null; },
     async remove(a) { const db = fakeDb(); delete db.saves[a.uid]; delete db.users[a.id]; fakeSave(db); },
   };
 
@@ -162,15 +172,133 @@
   const listeners = new Set();
   const notify = () => listeners.forEach((f) => f(status()));
 
-  async function saveNow(keepalive) {
-    if (!acct) return false;
-    if (saving) { dirty = true; return false; }
-    saving = true; dirty = false; clearTimeout(timer);
+  /* =========================================================
+   *  v25：同期（スマホとパソコンなど、いくつもの端末で同じデータを使う）
+   *
+   *  前は「この端末のデータ」をそのままクラウドに上書きしていたので、
+   *  スマホで遊んだあとパソコンを開くと、パソコンの古いデータでクラウドが上書きされ、
+   *  端末ごとにステージや戦闘力がちがってしまっていました。
+   *
+   *  クラウドのデータに番号（rev：保存するたびに +1）を付けて、この端末は
+   *    acct.syncedRev … 最後にクラウドと同じだったときの番号
+   *    acct.syncedSum … そのときのデータのまとめ（ステージ・ATK・コイン・装備など。S.summaryOf）
+   *  を覚えておきます。ログインした日などの小さな変化は「変わった」に入れません。
+   *  ・開いたとき・画面に戻ってきたとき：クラウドの番号が進んでいたら（ほかの端末で保存された）
+   *      この端末で何も変わっていない → クラウドのデータを読み込む
+   *      この端末でも変わっている     → どちらのデータを使うか選んでもらう
+   *  ・保存するとき：先にクラウドの番号を見て、ほかの端末が保存していたら上書きしない（上と同じ流れ）
+   * ========================================================= */
+  let syncing = false, changeSeq = 0, lastCheck = 0, retryT = null, syncErr = null;
+  const busyPlaying = () => !!((DS.battle && DS.battle.active) || (DS.minigame && DS.minigame.active) || (DS.lobby && DS.lobby.inRoom && DS.lobby.inRoom()));
+  /** 2つのデータが同じくらいか（ステージ・ATK・HP・コイン・装備の数がすべて同じ） */
+  function sameData(a, b) {
+    return !!(a && b) && ['cleared', 'atk', 'hp', 'coins', 'lv', 'items', 'res'].every((k) => a[k] === b[k]);
+  }
+  /** クラウドのデータに切りかえる（ページを読み込み直す） */
+  function adopt(data, msg) {
+    S.replaceSave(data);
+    acct.syncedRev = typeof data.rev === 'number' ? data.rev : 0;
+    acct.syncedSum = S.summaryOf(data);
+    acct.dirty = false; acct.savedAt = Date.now();
+    saveAcct(acct);
+    try { sessionStorage.setItem('sa-sync-msg', msg || 'ほかの端末で遊んだデータを読み込みました'); } catch (e) { /* noop */ }
+    location.reload();
+  }
+  /** クラウドのデータが新しくなっていないか見る（開いたとき・画面に戻ったとき・保存する前） */
+  async function checkCloud() {
+    if (!acct || syncing) return;
+    if (busyPlaying()) { clearTimeout(retryT); retryT = setTimeout(() => checkCloud(), 15000); return; }   // バトル中・パーティー中は読み込み直さない
+    syncing = true; lastCheck = Date.now();
+    let wait = false;
     try {
       const a = await session();
-      await B.put(a, Object.assign(S.exportSave(), { playerId: acct.id }), keepalive);
+      if (acct.syncedRev == null) {
+        // この端末で、同期の機能が入ってから初めて：クラウドのデータとくらべる
+        const data = await B.get(a);
+        if (!data) { acct.syncedRev = 0; acct.syncedSum = null; acct.dirty = true; saveAcct(acct); return; }
+        if (sameData(S.summaryOf(), S.summaryOf(data))) { acct.syncedRev = typeof data.rev === 'number' ? data.rev : 0; acct.syncedSum = S.summaryOf(data); saveAcct(acct); return; }
+        wait = true; chooseData(data); return;
+      }
+      const rev = await B.getRev(a);
+      if (rev != null && rev > acct.syncedRev) {
+        const data = await B.get(a);
+        if (!data) return;
+        const mine = S.summaryOf(), theirs = S.summaryOf(data);
+        // 中身（ステージ・装備・コインなど）が同じなら、読み込み直さずに番号だけ合わせる（ログインした日などの小さなちがいだけ）
+        if (sameData(mine, theirs)) { acct.syncedRev = rev; acct.syncedSum = theirs; saveAcct(acct); return; }
+        // この端末で、前にクラウドと同じだったときから何か進んだか（ログインした日などの小さな変化は入れない）
+        const localChanged = !acct.syncedSum || !sameData(mine, acct.syncedSum);
+        if (!localChanged) { adopt(data); wait = true; return; }
+        wait = true; chooseData(data); return;
+      }
+    } catch (e) {
+      // 通信できないときは、次の機会に（保存も止めない）
+      syncErr = (e && (e.code || e.message)) || 'error';
+    } finally {
+      if (!wait) {
+        syncing = false;
+        if (acct && (acct.dirty || dirty)) schedule(2);
+      }
+    }
+  }
+  /** この端末とクラウドでデータがちがう：どちらを使うか選んでもらう */
+  function chooseData(cloudData) {
+    const mine = S.summaryOf(), theirs = S.summaryOf(cloudData) || {};
+    const score = (x) => (x.cleared + 1) * 1e12 + (x.atk * 6 + x.hp);
+    const rec = score(theirs) > score(mine) ? 'cloud' : 'mine';
+    const time = (t) => { if (!t) return '—'; const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+    const card = (x, title, key) => `<div class="sync-card ${rec === key ? 'sync-best' : ''}">
+        ${rec === key ? '<span class="sync-rec">おすすめ</span>' : ''}
+        <b class="sync-title">${title}</b>
+        <div class="sync-rows">
+          <span><small>ステージ</small><b>${x.cleared >= 0 ? `STAGE ${x.cleared + 1} までクリア` : 'まだクリアなし'}</b></span>
+          <span><small>ATK / HP</small><b>${U.fmtBig(x.atk || 0)} / ${U.fmtBig(x.hp || 0)}</b></span>
+          <span><small>コイン</small><b>${U.fmt(x.coins || 0)}</b></span>
+          <span><small>アカウント</small><b>Lv ${x.lv || 1}</b></span>
+          <span><small>最後に遊んだ</small><b>${time(x.at)}</b></span>
+        </div></div>`;
+    const m = modal({
+      title: 'データがちがいます',
+      closable: false,
+      cls: 'modal-sync',
+      body: `<p class="center">この端末のデータと、クラウド（ほかの端末で保存したデータ）がちがいます。<br><b>どちらのデータを使いますか？</b></p>
+        <div class="sync-cards">${card(mine, 'この端末', 'mine')}${card(theirs, 'クラウド（ほかの端末）', 'cloud')}</div>
+        <p class="note dark center">選ばなかったほうのデータは消えます。これからは、どの端末で遊んでも同じデータになります。</p>`,
+      buttons: [
+        { label: 'この端末のデータを使う', cls: rec === 'mine' ? 'btn-yellow' : 'btn-gray', onClick: () => {
+          acct.syncedRev = typeof cloudData.rev === 'number' ? cloudData.rev : 0;
+          acct.syncedSum = null;
+          acct.dirty = true; saveAcct(acct);
+          syncing = false;
+          saveNow().then((ok) => { if (ok) toast('この端末のデータをクラウドに保存しました', 'good'); });
+        } },
+        { label: 'クラウドのデータを使う', cls: rec === 'cloud' ? 'btn-yellow' : 'btn-gray', onClick: () => {
+          adopt(cloudData, 'クラウドのデータを読み込みました');
+        } },
+      ],
+    });
+    return m;
+  }
+
+  async function saveNow(keepalive) {
+    if (!acct) return false;
+    if (saving || syncing) { dirty = true; return false; }
+    saving = true; dirty = false; clearTimeout(timer);
+    let recheck = false;
+    try {
+      const a = await session();
+      // ほかの端末が先に保存していたら上書きしない（読み込むか、どちらを使うか選んでもらう）
+      if (acct.syncedRev == null) { recheck = true; return false; }
+      const cloudRev = await B.getRev(a, keepalive);
+      if (cloudRev != null && cloudRev > acct.syncedRev) { recheck = true; return false; }
+      const seq = changeSeq;
+      const rev = Math.max(cloudRev || 0, acct.syncedRev || 0) + 1;
+      const data = Object.assign(S.exportSave(), { playerId: acct.id, rev, savedAt: Date.now() });
+      await B.put(a, data, keepalive);
       lastSaved = Date.now(); lastErr = null;
-      acct.savedAt = lastSaved; saveAcct(acct);
+      acct.savedAt = lastSaved; acct.syncedRev = rev; acct.syncedSum = S.summaryOf(data);
+      if (seq === changeSeq) acct.dirty = false;
+      saveAcct(acct);
       return true;
     } catch (e) {
       lastErr = e.code || 'server';
@@ -180,7 +308,8 @@
     } finally {
       saving = false;
       notify();
-      if (dirty) schedule(3);
+      if (recheck) setTimeout(() => checkCloud(), 0);
+      else if (dirty) schedule(3);
     }
   }
   function schedule(sec) {
@@ -196,7 +325,7 @@
       const id = randId();
       try {
         const a = await B.signUp(id, pin);
-        acct = Object.assign({ id, pin, createdAt: Date.now(), test: !configured }, a);
+        acct = Object.assign({ id, pin, createdAt: Date.now(), test: !configured, syncedRev: 0, dirty: true }, a);
         saveAcct(acct);
         S.startLimited(acct.createdAt);   // 発行した日から7日間限定ミッションが始まる
         S.setCodeIssued();                // ミッション「引き継ぎコードを発行する」
@@ -218,7 +347,9 @@
     return { account: Object.assign({ id, pin, test: !configured }, a), data };
   }
   function applyRestore(r) {
-    acct = r.account; acct.savedAt = Date.now(); saveAcct(acct);
+    acct = r.account; acct.savedAt = Date.now();
+    acct.syncedRev = typeof r.data.rev === 'number' ? r.data.rev : 0; acct.dirty = false; acct.syncedSum = S.summaryOf(r.data);
+    saveAcct(acct);
     S.replaceSave(r.data);
     location.reload();
   }
@@ -239,7 +370,7 @@
   const message = (code) => MESSAGES[code] || MESSAGES.server;
 
   function status() {
-    return { configured, hasAccount: !!acct, id: acct && acct.id, pin: acct && acct.pin, lastSaved, error: lastErr, saving, test: !configured };
+    return { configured, hasAccount: !!acct, id: acct && acct.id, pin: acct && acct.pin, lastSaved, error: lastErr, saving, test: !configured, syncErr, syncedRev: acct && acct.syncedRev, syncing };
   }
 
   /* =========================================================
@@ -490,15 +621,26 @@
     onReady = onReadyFn || null;
     // ブラウザに「このサイトのデータを消さないで」とお願いする（対応ブラウザのみ）
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* noop */ }
-    S.onChange(() => { if (acct) schedule(); });
-    const flush = () => { if (acct && (timer || dirty)) saveNow(true); };
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+    S.onChange(() => {
+      changeSeq++;
+      if (!acct) return;
+      if (!acct.dirty) { acct.dirty = true; saveAcct(acct); }
+      schedule();
+    });
+    const flush = () => { if (acct && !syncing && (timer || dirty || acct.dirty)) saveNow(true); };
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flush();
+      // 画面に戻ってきたとき：ほかの端末で遊んでいたら、そのデータを読み込む
+      else if (acct && Date.now() - lastCheck > 5000) checkCloud();
+    });
     window.addEventListener('pagehide', flush);
     // 引き継ぎコードを持っているのに7日間限定ミッションがまだ始まっていなければ（この機能が入る前に発行した人）、今日から始める
     if (acct) { S.startLimited(Date.now()); S.setCodeIssued(); }
+    // ほかの端末のデータを読み込んで読み込み直したときのお知らせ
+    try { const msg = sessionStorage.getItem('sa-sync-msg'); if (msg) { sessionStorage.removeItem('sa-sync-msg'); setTimeout(() => toast(msg, 'good', 3200), 600); } } catch (e) { /* noop */ }
     if (!acct && !skipped()) setTimeout(welcome, 300);
-    else { if (acct) schedule(2); readyCb(); }
+    else { if (acct) checkCloud(); readyCb(); }
   }
 
-  DS.cloud = { init, issue, restore, saveNow, status, openProfile, openRestore, openDelete, welcome, onChange: (f) => listeners.add(f), configured, api, message, _fmtId: fmtId };
+  DS.cloud = { init, issue, restore, saveNow, checkCloud, status, openProfile, openRestore, openDelete, welcome, onChange: (f) => listeners.add(f), configured, api, message, _fmtId: fmtId };
 })();

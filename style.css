@@ -2399,3 +2399,16 @@ button.ow-chip:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--in
 .mg-feed-row.skill { border-right-color: #b98cff; }
 .mg-feed-row.out { opacity: 0; transform: translateX(12px); }
 @keyframes feedIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+
+/* v25：端末どうしでデータがちがうときに選ぶ */
+.modal-sync .modal-card { max-width: 440px; }
+.sync-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 6px; }
+.sync-card { position: relative; border: 3px solid var(--ink); border-radius: 14px; background: #fff; padding: 10px 8px 8px; }
+.sync-card.sync-best { background: #fff6c2; box-shadow: 0 0 0 3px #ffb000 inset; }
+.sync-rec { position: absolute; top: -11px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 900; color: #fff; background: #ff4f9a; border: 2px solid var(--ink); border-radius: 999px; padding: 0 8px; white-space: nowrap; }
+.sync-title { display: block; text-align: center; font-size: 14px; margin-bottom: 6px; }
+.sync-rows { display: flex; flex-direction: column; gap: 4px; }
+.sync-rows span { display: flex; flex-direction: column; line-height: 1.2; }
+.sync-rows small { font-size: 10px; font-weight: 800; color: #6b5a44; }
+.sync-rows b { font-size: 13px; }
+.modal-sync .modal-buttons { flex-direction: column; }
