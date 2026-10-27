@@ -1,9 +1,9 @@
 /* =========================================================
  *  adventure.js  ― 冒険（v29・下のバーのいちばん右）
  *
- *  何もしなくても C.ADVENTURE.tickMin 分（5分）ごとに報酬がたまります。
- *    ランダム設計図：クリアしたステージの数 × bpPerStage 枚（2枚）
- *    コイン　　　　：クリアしたステージの数 × coinsPerStage 枚（5枚）
+ *  何もしなくても報酬がたまります。
+ *    コイン　　　　：tickMin 分（5分）ごとに、クリアしたステージの数 × coinsPerStage 枚（5枚）
+ *    ランダム設計図：bpTickMin 分（10分）ごとに、クリアしたステージの数 × bpPerStage 枚（1枚）
  *  maxHours 時間（24時間）分までたまり、それより長く放っておいても増えません。
  *  「冒険から受け取る」で受け取ります（state.js の adventureInfo / claimAdventure）。
  * ========================================================= */
@@ -46,7 +46,7 @@
           <button class="btn btn-big btn-yellow adv-claim" id="adv-claim">冒険から受け取る</button>
           <p class="adv-rate" id="adv-rate"></p>
         </div>
-        <p class="note adv-note">報酬は ${AD.tickMin}分ごとに増えます。先のステージをクリアするほど、たくさんたまるようになります。<br>
+        <p class="note adv-note">コインは ${AD.tickMin}分ごと、設計図は ${AD.bpTickMin}分ごとに増えます。先のステージをクリアするほど、たくさんたまるようになります。<br>
           ${AD.maxHours}時間たつと止まるので、1日1回は受け取りに来てね。</p>
       </div>`;
     lastScene = '';
@@ -65,7 +65,9 @@
     const key = st.key + '|' + look + '|' + (i.stages > 0);
     if (key !== lastScene) {
       lastScene = key;
-      $('#adv-scene', el).innerHTML = `<div class="adv-stage">${A.stage(st.biome)}</div>
+      // 絵が枠いっぱいになるように（はみ出したところは切る）
+      const art = A.stage(st.biome).replace('<svg ', '<svg preserveAspectRatio="xMidYMid slice" ');
+      $('#adv-scene', el).innerHTML = `<div class="adv-stage">${art}</div>
         <div class="adv-hero">${look ? A.charSvg(look) : A.hero(C.PLAYER_COLORS[0])}</div>
         <span class="adv-where">${i.stages > 0 ? `STAGE ${st.no}「${esc(st.name)}」を冒険中…` : 'ステージ1をクリアすると冒険に出発！'}</span>`;
     }
@@ -74,14 +76,14 @@
     $('#adv-bar', el).style.width = Math.min(100, i.elapsed / i.max * 100) + '%';
     $('#adv-next', el).innerHTML = i.full
       ? '<b class="adv-full">いっぱいです！</b>受け取らないと、これ以上たまりません'
-      : `次の報酬まで <b>${ms2(i.nextIn)}</b>`;
+      : `次のコインまで <b>${ms2(i.nextCoin)}</b>　次の設計図まで <b>${ms2(i.nextBp)}</b>`;
     $('#adv-bp', el).textContent = '×' + fmt(i.bp);
     $('#adv-coins', el).textContent = '+' + fmt(i.coins);
-    const btn = $('#adv-claim', el), can = i.ticks > 0 && (i.bp > 0 || i.coins > 0);
+    const btn = $('#adv-claim', el), can = i.can;
     btn.disabled = !can;
     btn.classList.toggle('pulse', can && i.full);
     $('#adv-rate', el).innerHTML = i.stages > 0
-      ? `${AD.tickMin}分ごとに <b>ランダム設計図 ${fmt(i.bpPer)}枚</b>・<b>コイン ${fmt(i.coinsPer)}枚</b><small>クリアしたステージの数 ${i.stages} × 設計図${AD.bpPerStage}枚・コイン${AD.coinsPerStage}枚</small>`
+      ? `${AD.tickMin}分ごとに <b>コイン ${fmt(i.coinsPer)}枚</b>・${AD.bpTickMin}分ごとに <b>ランダム設計図 ${fmt(i.bpPer)}枚</b><small>クリアしたステージの数 ${i.stages} × コイン${AD.coinsPerStage}枚・設計図${AD.bpPerStage}枚</small>`
       : 'ステージをクリアすると、報酬がたまるようになります';
   }
 

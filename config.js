@@ -494,9 +494,11 @@ DS.config = {
   //       charPulls（キャラガチャを引いた合計）/ fuse（合成した回数）/ levelUp（装備をレベルアップした回数）/ clears（ステージクリアの合計）
   // reward: coins（コイン）/ bp（ランダム設計図）/ ticket（item10・char10）/ tool（どうぐ）
   // ---- 冒険（v29・下のバーのいちばん右）----
-  // 何もしなくても tickMin 分ごとに報酬がたまる：ランダム設計図（クリアしたステージの数 × bpPerStage 枚）・コイン（クリアしたステージの数 × coinsPerStage）
+  // 何もしなくても報酬がたまる
+  //   コイン　　　　：tickMin 分（5分）ごとに、クリアしたステージの数 × coinsPerStage 枚
+  //   ランダム設計図：bpTickMin 分（10分）ごとに、クリアしたステージの数 × bpPerStage 枚
   // maxHours 時間分までたまる（それより長く放っておいても増えない）。「冒険から受け取る」で受け取る
-  ADVENTURE: { tickMin: 5, bpPerStage: 2, coinsPerStage: 5, maxHours: 24 },
+  ADVENTURE: { tickMin: 5, coinsPerStage: 5, bpTickMin: 10, bpPerStage: 1, maxHours: 24 },
 
   LIMITED: {
     durationMs: (8 * 24 * 3600 - 1) * 1000,

@@ -110,7 +110,7 @@
       icon: null,                   // 左上のアイコン（null なら見た目のキャラ）
       essence: 0,                   // エッセンス（キャラのレベルアップに使う）
       charLv: {},                   // キャラのレベル { widow: 5 }
-      adventure: { start: Date.now() },   // v29：冒険（この時刻から報酬がたまっている）
+      adventure: { start: Date.now(), bpStart: Date.now() },   // v29：冒険（この時刻から報酬がたまっている。start：コイン / bpStart：設計図）
       charLvBest: {},               // v28：今までに上げたいちばん高いレベル（トレードでリセットされても、もう一度上げた分はミッションに数えない）
       ach: {},                      // 受け取ったミッション（1回きりは true、何度でもは受け取った回数）
       daily: null,                  // デイリーミッション { day, base, claimed, ms }
@@ -238,7 +238,9 @@
     s.charLvBest = best;
     // v29：冒険。前のデータには無いので、今からたまり始める
     const advStart = Number(s.adventure && s.adventure.start) || 0;
-    s.adventure = { start: advStart > 0 ? advStart : Date.now() };
+    const advBp = Number(s.adventure && s.adventure.bpStart) || 0;
+    const a0 = advStart > 0 ? advStart : Date.now();
+    s.adventure = { start: a0, bpStart: advBp > 0 ? advBp : a0 };
     s.ach = Object.assign({}, s.ach && typeof s.ach === 'object' ? s.ach : {});
     if ((old.version || 1) < 6) s.stats.charsGot = Math.max(s.stats.charsGot, Object.values(s.chars).reduce((a, n) => a + (n | 0), 0));
     if (!s.daily || typeof s.daily !== 'object' || typeof s.daily.day !== 'string') s.daily = null;
@@ -379,28 +381,39 @@
   }
 
   /* ---------- 冒険（v29）：放っておくと報酬がたまる ---------- */
-  /** { ticks: たまった回数, bp, coins, coinsPer: 1回のコイン, stages: クリアしたステージの数, elapsed, max, full, nextIn: 次の報酬までのミリ秒 } */
+  /** コインと設計図は、たまる間隔がちがうので、時計を別々に持つ（start：コイン / bpStart：設計図） */
+  function advClock(start, tickMs, now, max) {
+    let s = Number(start) || now;
+    if (s > now) s = now;   // 端末の時計が戻ったとき
+    const raw = now - s, full = raw >= max, elapsed = Math.min(raw, max);
+    const ticks = Math.floor(elapsed / tickMs);
+    return { start: s, raw, full, elapsed, ticks, tick: tickMs, nextIn: full ? 0 : tickMs - (elapsed % tickMs) };
+  }
+  /** 冒険の様子 { coins, bp, coinsPer, bpPer, stages, elapsed, max, full, nextCoin, nextBp, can } */
   function adventureInfo(now) {
-    const AD = C.ADVENTURE, tick = AD.tickMin * 60000, max = AD.maxHours * 3600000;
+    const AD = C.ADVENTURE, max = AD.maxHours * 3600000;
     now = now || Date.now();
-    let start = Number(save.adventure && save.adventure.start) || now;
-    if (start > now) start = now;   // 端末の時計が戻ったとき
-    const raw = now - start, full = raw >= max, elapsed = Math.min(raw, max);
-    const ticks = Math.floor(elapsed / tick);
+    const ad = save.adventure || {};
+    const ck = advClock(ad.start, AD.tickMin * 60000, now, max);
+    const bk = advClock(ad.bpStart != null ? ad.bpStart : ad.start, (AD.bpTickMin || AD.tickMin) * 60000, now, max);
     const stages = Math.max(0, progress() + 1);
     const coinsPer = stages * AD.coinsPerStage, bpPer = stages * AD.bpPerStage;
-    return { start, ticks, bp: ticks * bpPer, coins: ticks * coinsPer, coinsPer, bpPer, stages, elapsed, max, full,
-      nextIn: full ? 0 : tick - (elapsed % tick), tick };
+    const coins = ck.ticks * coinsPer, bp = bk.ticks * bpPer;
+    // 「たまった時間」は古いほう（設計図の時計）で見せる
+    const elapsed = Math.max(ck.elapsed, bk.elapsed), full = ck.full || bk.full;
+    return { coins, bp, coinsPer, bpPer, stages, elapsed, max, full, ck, bk,
+      ticks: ck.ticks + bk.ticks, nextCoin: ck.nextIn, nextBp: bk.nextIn, can: coins > 0 || bp > 0 };
   }
   /** たまった報酬を受け取る。もらったもの（grantReward の結果の形）の配列を返す */
   function claimAdventure() {
     const now = Date.now(), info = adventureInfo(now);
-    if (!info.ticks) return [];
+    if (!info.can) return [];
     const got = [];
     if (info.coins) { save.coins += info.coins; got.push({ coins: info.coins }); }
     if (info.bp) got.push({ bp: addRandomBlueprints(info.bp) });
-    // いっぱいだったら今から、そうでなければ途中までたまっていた分は残す
-    save.adventure = { start: info.full ? now : info.start + info.ticks * info.tick };
+    // いっぱいだったら今から、そうでなければ途中までたまっていた分（5分・10分に届かない分）は残す
+    const next = (k) => (k.full ? now : k.start + k.ticks * k.tick);
+    save.adventure = { start: next(info.ck), bpStart: next(info.bk) };
     persist();
     return got;
   }
