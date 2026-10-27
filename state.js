@@ -110,6 +110,7 @@
       icon: null,                   // 左上のアイコン（null なら見た目のキャラ）
       essence: 0,                   // エッセンス（キャラのレベルアップに使う）
       charLv: {},                   // キャラのレベル { widow: 5 }
+      charLvBest: {},               // v28：今までに上げたいちばん高いレベル（トレードでリセットされても、もう一度上げた分はミッションに数えない）
       ach: {},                      // 受け取ったミッション（1回きりは true、何度でもは受け取った回数）
       daily: null,                  // デイリーミッション { day, base, claimed, ms }
       shop: null,                   // ショップ { period, items, refDay, refN }
@@ -228,6 +229,12 @@
     const clv = {};
     Object.keys(s.charLv || {}).forEach((k) => { const n = Math.floor(Number(s.charLv[k]) || 0); if (C.CHARACTERS[k] && s.chars[k] && n > 1) clv[k] = Math.min(n, C.CHAR_LEVEL.max); });
     s.charLv = clv;
+    const best = {};
+    Object.keys(C.CHARACTERS).forEach((k) => {
+      const n = Math.max(Math.floor(Number(s.charLvBest && s.charLvBest[k]) || 0), clv[k] || 0);
+      if (n > 1) best[k] = Math.min(n, C.CHAR_LEVEL.max);
+    });
+    s.charLvBest = best;
     s.ach = Object.assign({}, s.ach && typeof s.ach === 'object' ? s.ach : {});
     if ((old.version || 1) < 6) s.stats.charsGot = Math.max(s.stats.charsGot, Object.values(s.chars).reduce((a, n) => a + (n | 0), 0));
     if (!s.daily || typeof s.daily !== 'object' || typeof s.daily.day !== 'string') s.daily = null;
@@ -484,7 +491,8 @@
       if (!li || !li.can) break;
       save.coins -= li.next.coins; save.essence -= li.next.essence;
       save.charLv[key] = li.lv + 1;
-      save.stats.charLevelUps++;
+      // v28：前に上げたことのあるレベルまで上げ直したぶんは数えない（リセットして上げ直すとミッションの報酬が何度ももらえてしまうため）
+      if (li.lv + 1 > (save.charLvBest[key] || 1)) { save.charLvBest[key] = li.lv + 1; save.stats.charLevelUps++; }
       n++;
     }
     if (n) persist();
