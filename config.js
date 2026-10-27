@@ -414,7 +414,7 @@ DS.config = {
   ACHIEVEMENTS: [
     { id: 'code', name: '引き継ぎコードを発行する', check: 'code', reward: { coins: 30000 } },
     { id: 'firstLevel', name: '初めて装備のレベルを上げる', check: 'levelUps', n: 1, reward: { ticket: 'item10' } },
-    { id: 'level10', name: '装備のレベルを10上げる', check: 'levelUps', step: 10, reward: { bp: 10 } },
+    // v28：「装備のレベルを10上げるごとに ランダム設計図10枚」は削除
     { id: 'firstFuse', name: '初めて装備を合成する', check: 'fuses', n: 1, reward: { ticket: 'item10' } },
     { id: 'fuse10', name: '装備を10回合成する', check: 'fuses', step: 10, reward: { bp: 10 } },
     { id: 'fullGear', name: '初めて全身装備をつける（武器・防具・ベルト・靴）', check: 'fullGear', reward: { ticket: 'item10' } },
