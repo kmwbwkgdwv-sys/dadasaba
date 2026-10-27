@@ -38,6 +38,7 @@
   };
   function optInfo(o) {
     if (o.kind === 'heal') return { name: 'HPを回復', tag: '回復', desc: 'HPを30%回復する', icon: A.skillIcon('heal') };
+    if (o.kind === 'coins') return { name: `コイン +${fmt(o.n || GC.MAXED_COINS || 1000)}`, tag: 'ボーナス', desc: '試合が終わるともらえる（負けてももらえる）', icon: A.coin() };
     const d = o.kind === 'skill' ? GC.SKILLS[o.key] : GC.ABILITIES[o.key];
     return { name: d.name, tag: o.kind === 'skill' ? (d.weapon ? '武器' : 'スキル') : 'アビリティ', desc: d.desc(o.star), icon: A.skillIcon(o.key), evo: o.star >= (GC.EVO_STAR || 6) };
   }
@@ -409,8 +410,8 @@
           const u = e.ups && e.ups[this.selfId];
           let what = 'HPが回復した';
           if (u && u.kind !== 'heal') {
-            const d = u.kind === 'skill' ? GC.SKILLS[u.key] : GC.ABILITIES[u.key];
-            what = `${d ? d.name : ''} ${starText(u.star)}`;
+            // v30：2つ・3つ上がったときは全部
+            what = (u.list || [u]).map((x) => { const d = x.kind === 'skill' ? GC.SKILLS[x.key] : GC.ABILITIES[x.key]; return `${d ? d.name : ''} ${starText(x.star)}`; }).join('\n');
           }
           if (e.roulette) { this.endRoulette(); this.banner(`${what}！`, 1500, 'good'); }
           else this.banner(`${e.id === this.selfId ? '' : e.name + ' が'}宝箱を開けた！\n${what}`, 2600, 'good');
@@ -532,8 +533,8 @@
           return `<button class="lv-card ${o.kind} ${f.evo ? 'evo' : ''}" data-i="${i}">
             <span class="lv-icon">${f.icon}</span>
             <span class="lv-body">
-              <span class="lv-head"><b>${esc(f.name)}</b><em>${f.tag}</em>${o.star === 1 && o.kind !== 'heal' ? '<strong>NEW</strong>' : ''}</span>
-              ${o.kind === 'heal' ? '' : `<span class="lv-stars">${starHtml(o.star)}</span>`}
+              <span class="lv-head"><b>${esc(f.name)}</b><em>${f.tag}</em>${o.star === 1 && o.kind !== 'heal' && o.kind !== 'coins' ? '<strong>NEW</strong>' : ''}</span>
+              ${o.kind === 'heal' || o.kind === 'coins' ? '' : `<span class="lv-stars">${starHtml(o.star)}</span>`}
               <span class="lv-desc">${esc(f.desc)}</span>
             </span></button>`;
         }).join('')}</div>`;
@@ -560,7 +561,7 @@
       const pl = e.plan && e.plan[this.selfId];
       const who = e.id === this.selfId ? 'あなた' : e.name;
       const head = `<div class="rl-title outline">宝箱ルーレット！</div>
-        <div class="rl-sub"><b>${esc(who)}</b> が宝箱を開けた！<br>${this.o.members.length > 1 ? '全員が' : ''}スキルかアビリティの★が1つ上がる</div>`;
+        <div class="rl-sub"><b>${esc(who)}</b> が宝箱を開けた！<br>${this.o.members.length > 1 ? '全員が' : ''}スキルかアビリティの★が上がる<small>（20%で2つ・10%で3つ！）</small></div>`;
       if (DS.sound) DS.sound.play('gachaOpen');
       if (!pl || !pl.cands) {
         el.innerHTML = `${head}<div class="rl-result show"><span class="rl-big">${A.skillIcon('heal')}</span><b>全部MAX！</b><span>HP 30%回復</span></div>`;
@@ -568,23 +569,28 @@
         return;
       }
       const cands = pl.cands.map((c) => ({ kind: c[0] === 's' ? 'skill' : 'ability', key: c[1], star: c[2] }));
+      // v30：2つ・3つ上がるときは、止まったあとにもう一度回る
+      const picks = (pl.picks && pl.picks.length ? pl.picks : [pl.pick]).filter((i) => cands[i]);
       const n = cands.length, CW = 78;
-      const loops = Math.max(6, Math.ceil(40 / n));
+      const loops = Math.max(8, Math.ceil(60 / n)) + picks.length;
       const items = [];
       for (let i = 0; i < loops; i++) cands.forEach((c) => items.push(c));
-      const finalIdx = (loops - 2) * n + pl.pick;   // 最後の1周の手前で止まる（右にも並びが見える）
+      const base = loops - 1 - picks.length;                 // 右にも並びが見えるように、最後の数周の手前で止まる
+      const stops = picks.map((pk, j) => (base + j) * n + pk);
       el.innerHTML = `${head}
         <div class="rl-win"><div class="rl-strip">${items.map((c, i) => `<span class="rl-cell ${c.kind}" data-i="${i}">${A.skillIcon(c.key)}<i>${c.star >= (GC.EVO_STAR || 6) ? '' : '★' + c.star}</i></span>`).join('')}</div><i class="rl-mark"></i></div>
-        <div class="rl-result"></div>`;
+        <div class="rl-bonus"></div>
+        <div class="rl-result ${picks.length > 1 ? 'multi' : ''}"></div>`;
       const strip = el.querySelector('.rl-strip'), win = el.querySelector('.rl-win');
       const W = win.clientWidth || 320;
-      const spin = Math.max(2, (e.dur || 5) - 1.1);        // 止まってから約1秒は結果を見せる
-      this.rlPlan = { cands, pick: pl.pick, strip, finalIdx, CW, W, x: -(finalIdx * CW + CW / 2 - W / 2) };
+      const posOf = (idx) => -(idx * CW + CW / 2 - W / 2);
+      const spin = Math.max(2, ((GC.CHEST && GC.CHEST.roulette) || e.dur || 5) - 1.1);   // 止まってから約1秒は結果を見せる
+      this.rlPlan = { cands, picks, stops, step: 0, strip, CW, W, posOf };
       strip.style.transition = 'none';
       strip.style.transform = `translateX(${W / 2 - CW / 2}px)`;
       void strip.offsetWidth;
       strip.style.transition = `transform ${spin}s cubic-bezier(.1, .62, .1, 1)`;
-      strip.style.transform = `translateX(${this.rlPlan.x}px)`;
+      strip.style.transform = `translateX(${posOf(stops[0])}px)`;
       this.rlTimer = setTimeout(() => this.landRoulette(), spin * 1000 + 30);
     }
     /** リールが1マス進むごとにカチッと鳴らす */
@@ -596,27 +602,46 @@
       const cell = Math.floor((R.W / 2 - x) / R.CW);
       if (cell !== this.rlCell) { this.rlCell = cell; if (DS.sound) DS.sound.play('tick'); }
     }
-    landRoulette() {
+    /** 今のリールを止めて、結果を1つ出す。まだ残っていれば（2つ・3つのとき）もう一度回す。instant：すぐに全部止める */
+    landRoulette(instant) {
       const R = this.rlPlan;
       if (!R || this.rlDone) return;
-      this.rlDone = true;
+      clearTimeout(this.rlTimer);
+      const idx = R.stops[R.step], c = R.cands[R.picks[R.step]];
       R.strip.style.transition = 'none';
-      R.strip.style.transform = `translateX(${R.x}px)`;
-      const c = R.cands[R.pick], next = Math.min(GC.EVO_STAR || 6, c.star + 1);
-      const cell = R.strip.querySelector(`.rl-cell[data-i="${R.finalIdx}"]`);
+      R.strip.style.transform = `translateX(${R.posOf(idx)}px)`;
+      R.strip.querySelectorAll('.rl-cell.hit').forEach((x) => x.classList.remove('hit'));
+      const cell = R.strip.querySelector(`.rl-cell[data-i="${idx}"]`);
       if (cell) cell.classList.add('hit');
+      const next = Math.min(GC.EVO_STAR || 6, c.star + 1);
       const f = optInfo(Object.assign({}, c, { star: next }));
       const r = this.el.roul.querySelector('.rl-result');
       if (r) {
-        r.innerHTML = `<b>${esc(f.name)}</b><span class="rl-stars">${starHtml(c.star)}<em>→</em>${starHtml(next)}</span>`;
+        r.insertAdjacentHTML('beforeend', `<div class="rl-row"><b>${esc(f.name)}</b><span class="rl-stars">${starHtml(c.star)}<em>→</em>${starHtml(next)}</span></div>`);
         r.classList.add('show');
       }
-      if (DS.sound) DS.sound.play('levelup');
+      if (DS.sound && !instant) DS.sound.play('levelup');
+      R.step++;
+      if (R.step >= R.picks.length) { this.rlDone = true; return; }
+      if (instant) { this.landRoulette(true); return; }
+      // もう1つ！
+      const bonus = this.el.roul.querySelector('.rl-bonus');
+      if (bonus) {
+        bonus.textContent = R.step === 1 ? (R.picks.length >= 3 ? 'ラッキー！あと2つ★アップ！' : 'ラッキー！もう1つ★アップ！') : 'さらにもう1つ！';
+        bonus.classList.remove('show'); void bonus.offsetWidth; bonus.classList.add('show');
+      }
+      if (DS.sound) DS.sound.play('gachaOpen');
+      this.rlTimer = setTimeout(() => {
+        if (!this.rlPlan || this.rlDone) return;
+        R.strip.style.transition = 'transform 1s cubic-bezier(.2, .7, .2, 1)';
+        R.strip.style.transform = `translateX(${R.posOf(R.stops[R.step])}px)`;
+        this.rlTimer = setTimeout(() => this.landRoulette(), 1030);
+      }, 500);
     }
     /** ルーレットを閉じる（ホストから結果が届いたとき） */
     endRoulette() {
       clearTimeout(this.rlTimer);
-      if (this.rlPlan && !this.rlDone) this.landRoulette();
+      if (this.rlPlan && !this.rlDone) this.landRoulette(true);
       this.rlPlan = null; this.rlShownAt = 0;
       const el = this.el.roul;
       el.classList.add('out');
@@ -659,7 +684,7 @@
       // v21：パーティーでクリアしたら、まだそのステージまで進んでいない人も「クリア」になる
       // （例：自分はステージ1まで、ホストのステージ3をクリア → 自分もステージ3までクリア）
       const cleared = r.win;
-      const got = S.recordMatch({ win: cleared, stageKey: this.stage.key, kills: mine.kills, coins: mine.coins }) || [];
+      const got = S.recordMatch({ win: cleared, stageKey: this.stage.key, kills: mine.kills, coins: (mine.coins || 0) + (mine.bonus || 0) }) || [];
       if (DS.sound) { DS.sound.bgm(null); DS.sound.play(r.win ? 'win' : 'lose'); }
       const unlockHtml = got.map((g) => {
         if (g.startsWith('filled:')) return `<div class="unlock">パーティーでクリアしたので、あなたも <b>STAGE ${this.stage.no} までクリア</b>になった！</div>`;
@@ -702,6 +727,7 @@
         <div class="rs-rewards">
           ${xpGot ? `<div class="rs-acc"><span class="acc-lv">Lv ${acc.lv}</span>アカウント経験値 <b>+${fmt(+xpGot.slice(3))}</b><i class="acc-bar"><i style="width:${acc.max ? 100 : Math.round(acc.xp / acc.need * 100)}%"></i></i></div>` : ''}
           ${mine.coins ? `<div>${A.coin()}コイン獲得アビリティ <b>+${fmt(mine.coins)}</b></div>` : ''}
+          ${mine.bonus ? `<div>${A.coin()}レベルアップのボーナス <b>+${fmt(mine.bonus)}</b></div>` : ''}
           ${cleared ? `<div class="m">ミッション：ステージクリア　<b>+${fmt(MC.stageClearReward)}</b> 受け取り可能</div>` : ''}
           <div class="m">ミッション：撃破（累計 ${fmt(after.kills)}体）${after.killN > before.killN ? `<b>+${fmt((after.killN - before.killN) * MC.killReward)}</b> 受け取り可能` : `次の報酬まであと${MC.killStep - after.killProgress}体`}</div>
           <div class="m">ミッションの報酬はロビーの「ミッション」で受け取れます</div>

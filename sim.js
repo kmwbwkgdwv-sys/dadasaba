@@ -317,15 +317,24 @@
      */
     openChest(p, ch) {
       ch.taken = true;
-      const plan = {};
+      const plan = {}, CH = GC.CHEST;
+      let most = 1;
       this.players.forEach((q) => {
-        const cands = [];
-        q.order.forEach((k) => { if (q.skills[k] < EVO) cands.push(['s', k, q.skills[k]]); });
-        q.aorder.forEach((k) => { if (q.abilities[k] < EVO) cands.push(['a', k, q.abilities[k]]); });
-        plan[q.id] = cands.length ? { cands, pick: Math.floor(Math.random() * cands.length) } : { heal: true };
+        const cands = [], seen = new Set();
+        q.order.forEach((k) => { if (q.skills[k] < EVO && !seen.has('s' + k)) { seen.add('s' + k); cands.push(['s', k, q.skills[k]]); } });
+        q.aorder.forEach((k) => { if (q.abilities[k] < EVO && !seen.has('a' + k)) { seen.add('a' + k); cands.push(['a', k, q.abilities[k]]); } });
+        if (!cands.length) { plan[q.id] = { heal: true }; return; }
+        // v30：20%で2つ・10%で3つ（ちがうスキル・アビリティ）。1人ずつ抽選
+        let want = 1, r = Math.random();
+        for (const [n, pr] of (CH.multi || [])) { if (r < pr) { want = n; break; } r -= pr; }
+        const idx = cands.map((_, i) => i);
+        for (let i = idx.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [idx[i], idx[j]] = [idx[j], idx[i]]; }
+        const picks = idx.slice(0, Math.min(want, cands.length));
+        most = Math.max(most, picks.length);
+        plan[q.id] = { cands, pick: picks[0], picks };
       });
       this.rlSeq++;
-      this.roulette = { seq: this.rlSeq, left: GC.CHEST.roulette || 5, plan, by: p.id, name: p.name };
+      this.roulette = { seq: this.rlSeq, left: (CH.roulette || 5) + (most - 1) * (CH.extraSec || 0), plan, by: p.id, name: p.name };
       this.fx.push({ id: this.nextId++, k: 21, x: ch.x, y: ch.y, rt: this.clock, o: p.slot });
       this.events.push({ type: 'roulette', seq: this.rlSeq, id: p.id, name: p.name, plan, dur: this.roulette.left });
     }
@@ -342,12 +351,17 @@
       const ups = {};
       this.players.forEach((q) => {
         const pl = R.plan[q.id];
-        const c = pl && pl.cands ? pl.cands[pl.pick] : null;
-        const opt = c ? { kind: c[0] === 's' ? 'skill' : 'ability', key: c[1] } : null;
-        const cur = opt ? (opt.kind === 'skill' ? q.skills[opt.key] : q.abilities[opt.key]) : null;
-        if (!opt || !cur || cur >= EVO) { ups[q.id] = this.chestUp(q); return; }   // 途中から入った人など
-        this.applyOption(q, opt);
-        ups[q.id] = { kind: opt.kind, key: opt.key, star: opt.kind === 'skill' ? q.skills[opt.key] : q.abilities[opt.key] };
+        const list = [];
+        (pl && pl.cands ? (pl.picks || [pl.pick]) : []).forEach((i) => {
+          const c = pl.cands[i];
+          const opt = c ? { kind: c[0] === 's' ? 'skill' : 'ability', key: c[1] } : null;
+          const cur = opt ? (opt.kind === 'skill' ? q.skills[opt.key] : q.abilities[opt.key]) : null;
+          if (!opt || !cur || cur >= EVO) return;
+          this.applyOption(q, opt);
+          list.push({ kind: opt.kind, key: opt.key, star: opt.kind === 'skill' ? q.skills[opt.key] : q.abilities[opt.key] });
+        });
+        if (!list.length) { ups[q.id] = this.chestUp(q); return; }   // 途中から入った人など
+        ups[q.id] = Object.assign({ list }, list[0]);   // list：上がったもの全部（v30）
       });
       this.events.push({ type: 'chest', id: R.by, name: R.name, ups, seq: R.seq, roulette: true });
     }
@@ -445,7 +459,8 @@
         cands.push({ kind: 'ability', key: k, star: s + 1 });
       });
       const picked = shuffle(cands).slice(0, 3);
-      if (!picked.length) picked.push({ kind: 'heal', key: 'heal', star: 0 });
+      // 全部上がりきったら「HP30%回復」か「コイン（v31）」を選ぶ
+      if (!picked.length) picked.push({ kind: 'heal', key: 'heal', star: 0 }, { kind: 'coins', key: 'coins', star: 0, n: GC.MAXED_COINS || 1000 });
       return picked;
     }
     startLevelup() {
@@ -484,6 +499,8 @@
         p.abilities[opt.key] = Math.min(EVO, (p.abilities[opt.key] || 0) + 1);
       } else if (opt.kind === 'heal' && !p.down) {
         p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.3);
+      } else if (opt.kind === 'coins') {
+        p.bonusCoins = (p.bonusCoins || 0) + (opt.n || GC.MAXED_COINS || 1000);   // v31：試合が終わったときにもらえる
       }
     }
     get paused() { return !!this.levelup || !!this.roulette; }
@@ -1523,7 +1540,7 @@
       this.phase = win ? 'win' : 'lose';
       this.levelup = null; this.roulette = null;
       const stats = {};
-      this.players.forEach((p) => { stats[p.id] = { kills: p.kills, coins: 300 * (p.abilities.coin || 0) }; });
+      this.players.forEach((p) => { stats[p.id] = { kills: p.kills, coins: 300 * (p.abilities.coin || 0), bonus: p.bonusCoins || 0 }; });
       this.result = { win, time: this.t / this.tScale, level: this.level, stats, stage: this.stageIndex, ow: this.overwhelm ? 1 : 0 };
       this.events.push({ type: 'end', result: this.result });
     }
