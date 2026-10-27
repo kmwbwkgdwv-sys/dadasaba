@@ -577,7 +577,7 @@
         e.speed *= R.speedMul;
       }
     }
-    /** 試合の終わり（ふだん5分・圧倒モード3分）：雑魚と中ボスを消して、BOSS_INTRO.warp 秒後にボス戦の場所へワープする */
+    /** 試合の終わり（ふだん8分・圧倒モード3分）：雑魚と中ボスを消して、BOSS_INTRO.warp 秒後にボス戦の場所へワープする */
     startBossPhase() {
       const BI = GC.BOSS_INTRO;
       // 消える煙（プレイヤーの近くの敵だけ）
