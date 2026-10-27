@@ -742,6 +742,16 @@
         <polygon points="${starPts(24, 24, 9, 4)}" fill="#ffd34d" stroke-width="2"/>
       </g>`;
     },
+    // v29：冒険（宝の地図）
+    adventure() {
+      return `<g stroke="${O}" stroke-width="2.6" stroke-linejoin="round">
+        <path d="M5 12 L17 7 L31 12 L43 7 L43 36 L31 41 L17 36 L5 41 Z" fill="#ffe7b0"/>
+        <path d="M17 7 V36 M31 12 V41" fill="none" stroke-width="1.8" opacity=".5"/>
+      </g>
+      <path d="M10 33 Q14 24 21 27 T31 20" fill="none" stroke="#ff5a6e" stroke-width="2.6" stroke-dasharray="3.2 3" stroke-linecap="round"/>
+      <path d="M32 13 L39 20 M39 13 L32 20" stroke="${O}" stroke-width="5.4" stroke-linecap="round"/>
+      <path d="M32 13 L39 20 M39 13 L32 20" stroke="#ff3b3b" stroke-width="3" stroke-linecap="round"/>`;
+    },
   };
   function navIcon(key) { return svg('0 0 48 48', NAV[key](), 'nav-art'); }
 

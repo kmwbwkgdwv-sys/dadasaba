@@ -1618,9 +1618,9 @@ html:not(.ready) #app { visibility: hidden; }
 /* =========================================================
  *  v8：ショップ・S装備・ミシック・武器一覧・キャラのレベル・デイリー・フレンド
  * ========================================================= */
-/* ---- 画面が4つ（ショップ・ガチャ・ロビー・装備） ---- */
-.screens-track { width: 400%; }
-.screen { width: 25%; }
+/* ---- 画面が5つ（ショップ・ガチャ・ロビー・装備・冒険（v29）） ---- */
+.screens-track { width: 500%; }
+.screen { width: 20%; }
 .nav-label { font-size: 11px; }
 
 /* ---- S装備・SS（金色のマーク） ---- */
@@ -2289,7 +2289,9 @@ html.lite .cf-rays,
 html.lite .cf-lp::after,
 html.lite .icard.cf-big,
 html.lite .lv-card.evo,
-html.lite .room-pill { animation: none !important; }
+html.lite .room-pill,
+html.lite .adv-hero,
+html.lite .adv-stage svg { animation: none !important; }
 html.lite .icard-bolts path { filter: none !important; }
 html.lite .icard .item-art, html.lite .fz3 .item-art { filter: none !important; }
 html.lite .rl-cell.hit svg { animation: rlHit .45s ease-in-out 4 alternate !important; }
@@ -2412,3 +2414,45 @@ button.ow-chip:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--in
 .sync-rows small { font-size: 10px; font-weight: 800; color: #6b5a44; }
 .sync-rows b { font-size: 13px; }
 .modal-sync .modal-buttons { flex-direction: column; }
+
+/* =========================================================
+ *  v29：冒険（下のバーのいちばん右）
+ * ========================================================= */
+.screen-adventure { background: linear-gradient(#ffcf7a 0%, #ff9f5a 30%, #c8607a 62%, #4a2a7a 100%); }
+.adv-bg { background:
+  radial-gradient(circle at 80% 8%, rgba(255, 250, 210, .9) 0 34px, rgba(255, 240, 180, .35) 35px, transparent 90px),
+  repeating-linear-gradient(-35deg, rgba(255, 255, 255, .05) 0 16px, transparent 16px 32px); }
+.adv-head { display: flex; align-items: center; gap: 10px; margin: 4px 0 10px; }
+.adv-ic { width: 64px; height: 64px; flex: none; filter: drop-shadow(0 3px 0 rgba(0, 0, 0, .3)); }
+.adv-ic svg { width: 100%; height: 100%; }
+.adv-title { display: block; font-size: 28px; color: #fff3a0; }
+.adv-head small { font-size: 12px; font-weight: 800; }
+.adv-card { background: var(--cream); color: var(--ink); border: 4px solid var(--ink); border-radius: 24px; padding: 10px 10px 14px; box-shadow: 0 6px 0 rgba(0, 0, 0, .3); }
+.adv-scene { position: relative; height: 170px; border: 3px solid var(--ink); border-radius: 16px; overflow: hidden; background: #8fdcff; }
+.adv-stage { position: absolute; inset: 0; }
+.adv-stage svg { width: 130%; height: 100%; animation: advPan 16s linear infinite alternate; }
+@keyframes advPan { from { transform: translateX(0); } to { transform: translateX(-23%); } }
+.adv-hero { position: absolute; left: 50%; bottom: 6px; width: 74px; height: 88px; margin-left: -37px; animation: advWalk .55s ease-in-out infinite; transform-origin: 50% 100%; }
+.adv-hero svg { width: 100%; height: 100%; }
+@keyframes advWalk { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-6px) rotate(3deg); } }
+.adv-scene.full .adv-hero { animation: none; }
+.adv-where { position: absolute; left: 8px; top: 8px; right: 8px; font-size: 12px; font-weight: 900; color: #fff; background: rgba(20, 14, 50, .72); border: 2px solid var(--ink); border-radius: 999px; padding: 2px 10px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.adv-time { display: flex; align-items: baseline; justify-content: center; gap: 6px; margin: 10px 0 4px; }
+.adv-time small { font-size: 12px; font-weight: 900; color: #6b5a44; }
+.adv-time b { font-size: 26px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.adv-time span { font-size: 13px; font-weight: 900; color: #6b5a44; }
+.adv-bar { position: relative; height: 16px; border: 3px solid var(--ink); border-radius: 10px; background: #e9e0cc; overflow: hidden; }
+.adv-bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(#ffe45c, #ff9a2e); transition: width .4s; }
+.adv-next { text-align: center; font-size: 13px; font-weight: 800; margin: 6px 0 8px; }
+.adv-next b { font-variant-numeric: tabular-nums; color: #ff4f9a; }
+.adv-full { color: #e8402a !important; margin-right: 4px; }
+.adv-rewards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.adv-rw { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; background: #fff; border: 3px solid var(--ink); border-radius: 16px; }
+.adv-rw svg { width: 40px; height: 40px; }
+.adv-rw b { font-size: 22px; font-weight: 900; }
+.adv-rw small { font-size: 11px; font-weight: 800; color: #6b5a44; }
+.adv-claim { width: 100%; }
+.adv-rate { text-align: center; font-size: 12px; font-weight: 800; margin: 8px 0 0; line-height: 1.5; }
+.adv-rate small { display: block; font-size: 10.5px; color: #6b5a44; }
+.adv-note { margin-top: 10px; }
+.nav-badge.max { font-size: 9px; padding: 0 4px; right: 12%; }

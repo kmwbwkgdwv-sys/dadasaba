@@ -12,8 +12,8 @@
    */
   DS.hooks = DS.hooks || { onGameStart: null };
 
-  let current = 2; // 0:ショップ 1:ガチャ 2:ロビー 3:装備
-  const N_SCREENS = 4;
+  let current = 2; // 0:ショップ 1:ガチャ 2:ロビー 3:装備 4:冒険（v29）
+  const N_SCREENS = 5;
   let lastChar;
 
   function go(i) {
@@ -24,6 +24,7 @@
     if (i === 0) DS.shop.update();
     if (i === 1) DS.gacha.update();
     if (i === 3) DS.equip.update();
+    if (i === 4 && DS.adventure) DS.adventure.update();
   }
 
   DS.nav = { go, get current() { return current; } };
@@ -99,10 +100,11 @@
     DS.shop.render();
     DS.gacha.render();
     DS.equip.render();
+    if (DS.adventure) DS.adventure.render();
     updateTop();
     go(current);
 
-    S.onChange(() => { updateTop(); DS.gacha.update(); DS.equip.update(); DS.lobby.updateMissionBadge(); DS.lobby.refreshStage(); if (current === 0) DS.shop.update(); });
+    S.onChange(() => { updateTop(); DS.gacha.update(); DS.equip.update(); DS.lobby.updateMissionBadge(); DS.lobby.refreshStage(); if (current === 0) DS.shop.update(); if (DS.adventure) DS.adventure.update(); });
     $('#profile-face').innerHTML = A.charFace(S.data.icon || S.data.look);
     DS.cloud.onChange(() => updateTop());
     document.documentElement.classList.add('ready');

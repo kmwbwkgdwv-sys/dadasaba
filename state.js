@@ -110,6 +110,7 @@
       icon: null,                   // 左上のアイコン（null なら見た目のキャラ）
       essence: 0,                   // エッセンス（キャラのレベルアップに使う）
       charLv: {},                   // キャラのレベル { widow: 5 }
+      adventure: { start: Date.now() },   // v29：冒険（この時刻から報酬がたまっている）
       charLvBest: {},               // v28：今までに上げたいちばん高いレベル（トレードでリセットされても、もう一度上げた分はミッションに数えない）
       ach: {},                      // 受け取ったミッション（1回きりは true、何度でもは受け取った回数）
       daily: null,                  // デイリーミッション { day, base, claimed, ms }
@@ -235,6 +236,9 @@
       if (n > 1) best[k] = Math.min(n, C.CHAR_LEVEL.max);
     });
     s.charLvBest = best;
+    // v29：冒険。前のデータには無いので、今からたまり始める
+    const advStart = Number(s.adventure && s.adventure.start) || 0;
+    s.adventure = { start: advStart > 0 ? advStart : Date.now() };
     s.ach = Object.assign({}, s.ach && typeof s.ach === 'object' ? s.ach : {});
     if ((old.version || 1) < 6) s.stats.charsGot = Math.max(s.stats.charsGot, Object.values(s.chars).reduce((a, n) => a + (n | 0), 0));
     if (!s.daily || typeof s.daily !== 'object' || typeof s.daily.day !== 'string') s.daily = null;
@@ -372,6 +376,33 @@
     save.blueprints[p.slot] += sp.bp; save.coins += sp.coins;
     if (!silent) persist();
     return Object.assign({ slot: p.slot }, sp);
+  }
+
+  /* ---------- 冒険（v29）：放っておくと報酬がたまる ---------- */
+  /** { ticks: たまった回数, bp, coins, coinsPer: 1回のコイン, stages: クリアしたステージの数, elapsed, max, full, nextIn: 次の報酬までのミリ秒 } */
+  function adventureInfo(now) {
+    const AD = C.ADVENTURE, tick = AD.tickMin * 60000, max = AD.maxHours * 3600000;
+    now = now || Date.now();
+    let start = Number(save.adventure && save.adventure.start) || now;
+    if (start > now) start = now;   // 端末の時計が戻ったとき
+    const raw = now - start, full = raw >= max, elapsed = Math.min(raw, max);
+    const ticks = Math.floor(elapsed / tick);
+    const stages = Math.max(0, progress() + 1);
+    const coinsPer = stages * AD.coinsPerStage, bpPer = stages * AD.bpPerStage;
+    return { start, ticks, bp: ticks * bpPer, coins: ticks * coinsPer, coinsPer, bpPer, stages, elapsed, max, full,
+      nextIn: full ? 0 : tick - (elapsed % tick), tick };
+  }
+  /** たまった報酬を受け取る。もらったもの（grantReward の結果の形）の配列を返す */
+  function claimAdventure() {
+    const now = Date.now(), info = adventureInfo(now);
+    if (!info.ticks) return [];
+    const got = [];
+    if (info.coins) { save.coins += info.coins; got.push({ coins: info.coins }); }
+    if (info.bp) got.push({ bp: addRandomBlueprints(info.bp) });
+    // いっぱいだったら今から、そうでなければ途中までたまっていた分は残す
+    save.adventure = { start: info.full ? now : info.start + info.ticks * info.tick };
+    persist();
+    return got;
   }
 
   /* ---------- 設計図・どうぐ・報酬 ---------- */
@@ -1226,6 +1257,7 @@
 
   DS.state = {
     get data() { return save; },
+    adventureInfo, claimAdventure,
     RARITY, makeKey, parseKey, itemStats, itemValue, rarityEffects, getStats, getLoadout, S_ITEMS, NORMAL_ITEMS, validRarity,
     charLevel, charLevelInfo, charLevelUp, dismantleChar, dismantleAll,
     missionsUnlocked, setCodeIssued, achievementList, claimAchievement, dailyInfo, claimDaily, ensureDaily,

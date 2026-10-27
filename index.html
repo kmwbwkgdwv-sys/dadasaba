@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=39">
+  <link rel="stylesheet" href="style.css?v=40">
   <script>
     /* 読み込みに失敗したとき、真っ暗な画面のままにせず原因を表示する（スマホでも分かるように） */
     (function () {
@@ -57,13 +57,14 @@
       </div>
     </header>
 
-    <!-- 3つの画面を横に並べて、下のバーで切り替える -->
+    <!-- 5つの画面を横に並べて、下のバーで切り替える -->
     <main class="screens">
       <div class="screens-track" id="screens-track">
         <section class="screen screen-shop" id="screen-shop" aria-label="ショップ"></section>
         <section class="screen screen-gacha" id="screen-gacha" aria-label="ガチャ"></section>
         <section class="screen screen-lobby" id="screen-lobby" aria-label="ロビー"></section>
         <section class="screen screen-equip" id="screen-equip" aria-label="装備"></section>
+        <section class="screen screen-adventure" id="screen-adventure" aria-label="冒険"></section>
       </div>
     </main>
 
@@ -73,6 +74,7 @@
       <button class="nav-btn" data-screen="1"><span class="nav-icon" data-icon="gacha"></span><span class="nav-label">ガチャ</span></button>
       <button class="nav-btn active" data-screen="2"><span class="nav-icon" data-icon="lobby"></span><span class="nav-label">ロビー</span></button>
       <button class="nav-btn" data-screen="3"><span class="nav-icon" data-icon="equip"></span><span class="nav-label">装備</span></button>
+      <button class="nav-btn" data-screen="4"><span class="nav-icon" data-icon="adventure"></span><span class="nav-label">冒険</span></button>
     </nav>
 
     <!-- ロビー（ルーム）画面：作成・参加後に表示 -->
@@ -84,31 +86,32 @@
 
   <noscript>このゲームを遊ぶには JavaScript を有効にしてください。</noscript>
 
-  <script src="config.js?v=39"></script>
-  <script src="gameConfig.js?v=39"></script>
-  <script src="state.js?v=39"></script>
-  <script src="art.js?v=39"></script>
-  <script src="gameArt.js?v=39"></script>
-  <script src="charArt.js?v=39"></script>
-  <script src="ui.js?v=39"></script>
-  <script src="sound.js?v=39"></script>
-  <script src="settings.js?v=39"></script>
-  <script src="cloud.js?v=39"></script>
-  <script src="net.js?v=39"></script>
-  <script src="lobby.js?v=39"></script>
-  <script src="gacha.js?v=39"></script>
-  <script src="equip.js?v=39"></script>
-  <script src="mission.js?v=39"></script>
-  <script src="shop.js?v=39"></script>
-  <script src="friends.js?v=39"></script>
-  <script src="record.js?v=39"></script>
-  <script src="trade.js?v=39"></script>
-  <script src="gifts.js?v=39"></script>
-  <script src="sim.js?v=39"></script>
-  <script src="render.js?v=39"></script>
-  <script src="game.js?v=39"></script>
-  <script src="mgsim.js?v=39"></script>
-  <script src="minigame.js?v=39"></script>
-  <script src="main.js?v=39"></script>
+  <script src="config.js?v=40"></script>
+  <script src="gameConfig.js?v=40"></script>
+  <script src="state.js?v=40"></script>
+  <script src="art.js?v=40"></script>
+  <script src="gameArt.js?v=40"></script>
+  <script src="charArt.js?v=40"></script>
+  <script src="ui.js?v=40"></script>
+  <script src="sound.js?v=40"></script>
+  <script src="settings.js?v=40"></script>
+  <script src="cloud.js?v=40"></script>
+  <script src="net.js?v=40"></script>
+  <script src="lobby.js?v=40"></script>
+  <script src="gacha.js?v=40"></script>
+  <script src="equip.js?v=40"></script>
+  <script src="mission.js?v=40"></script>
+  <script src="shop.js?v=40"></script>
+  <script src="adventure.js?v=40"></script>
+  <script src="friends.js?v=40"></script>
+  <script src="record.js?v=40"></script>
+  <script src="trade.js?v=40"></script>
+  <script src="gifts.js?v=40"></script>
+  <script src="sim.js?v=40"></script>
+  <script src="render.js?v=40"></script>
+  <script src="game.js?v=40"></script>
+  <script src="mgsim.js?v=40"></script>
+  <script src="minigame.js?v=40"></script>
+  <script src="main.js?v=40"></script>
 </body>
 </html>
