@@ -96,10 +96,12 @@
       this.clock = 0;              // 一時停止中以外は進み続ける時計（エフェクト用）
       // 1人なら1倍、パーティーなら3倍の難易度
       this.partyDiff = (o.players || []).length > 1 ? GC.DIFFICULTY.party : GC.DIFFICULTY.solo;
-      // v22：圧倒モード。試合の時計（this.t）を tScale 倍の速さで進めて、8分の流れを3分に縮める
+      // 試合の時計（this.t）を tScale 倍の速さで進めて、8分の流れを縮める
+      // v27：ふだんは5分（MATCH_REAL）、v22 の圧倒モードは3分（OVERWHELM.seconds）
       const OW = GC.OVERWHELM;
       this.overwhelm = !!(o.overwhelm && OW);
-      this.tScale = this.overwhelm ? GC.MATCH_SECONDS / OW.seconds : 1;
+      this.realSeconds = this.overwhelm ? OW.seconds : (GC.MATCH_REAL || GC.MATCH_SECONDS);
+      this.tScale = GC.MATCH_SECONDS / this.realSeconds;
       this.boxes = []; this.heals = []; this.boxTimer = 60;
       this.chests = [];   // 中ボスの宝箱
       this.bombs = [];    // ダンボールから出た爆弾
@@ -413,7 +415,7 @@
     xpMul() {
       let s = 0;
       this.players.forEach((p) => { s += 0.1 * (p.abilities.scroll || 0) + (p.pas.militaryBoots ? p.pas.militaryBoots.xp / 100 : 0); });
-      return (1 + s) * (this.overwhelm ? GC.OVERWHELM.xp || 1 : 1);
+      return (1 + s) * (this.overwhelm ? GC.OVERWHELM.xp || 1 : GC.MATCH_XP || 1);
     }
     gainXp(n) {
       this.xp += n * this.xpMul();
@@ -558,7 +560,7 @@
         e.speed *= R.speedMul;
       }
     }
-    /** 8分：雑魚と中ボスを消して、BOSS_INTRO.warp 秒後にボス戦の場所へワープする */
+    /** 試合の終わり（ふだん5分・圧倒モード3分）：雑魚と中ボスを消して、BOSS_INTRO.warp 秒後にボス戦の場所へワープする */
     startBossPhase() {
       const BI = GC.BOSS_INTRO;
       // 消える煙（プレイヤーの近くの敵だけ）

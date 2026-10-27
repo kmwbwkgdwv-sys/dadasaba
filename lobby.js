@@ -177,7 +177,7 @@
     $('#stage-ow', el).addEventListener('click', (e) => {
       if (!e.target.closest('.ow-chip')) return;
       S.data.flags.owOff = !S.data.flags.owOff; S.persist();
-      toast(S.data.flags.owOff ? '圧倒モードを OFF にしました（いつもの8分の試合）' : '圧倒モードを ON にしました（3分でボス戦）', 'info');
+      toast(S.data.flags.owOff ? `圧倒モードを OFF にしました（いつもの${normalMin()}分の試合）` : `圧倒モードを ON にしました（${Math.round(GC.OVERWHELM.seconds / 60)}分でボス戦）`, 'info');
       updateStage(false);
     });
     $('#btn-mission', el).addEventListener('click', () => DS.mission.open());
@@ -222,10 +222,11 @@
     if (!ok) { el.innerHTML = ''; el.dataset.k = ''; return; }
     const html = `<${canToggle ? 'button' : 'span'} class="ow-chip ${on ? 'on' : 'off'}">
       <span class="ow-bolt" aria-hidden="true">${OW_ICON}</span>
-      <span class="ow-txt"><b>圧倒モード</b><small>${on ? `${Math.round(GC.OVERWHELM.seconds / 60)}分でボス戦！` : 'いつもの8分の試合'}</small></span>
+      <span class="ow-txt"><b>圧倒モード</b><small>${on ? `${Math.round(GC.OVERWHELM.seconds / 60)}分でボス戦！` : `いつもの${normalMin()}分の試合`}</small></span>
       <em>${on ? 'ON' : 'OFF'}</em></${canToggle ? 'button' : 'span'}>`;
     if (el.dataset.k !== html) { el.dataset.k = html; el.innerHTML = html; }
   }
+  const normalMin = () => Math.round((GC.MATCH_REAL || GC.MATCH_SECONDS) / 60);
   const OW_ICON = '<svg viewBox="0 0 24 24"><path d="M14 2 L4 14 H11 L9 22 L20 9 H13 Z" fill="#ffe14d" stroke="#231a3a" stroke-width="2" stroke-linejoin="round"/></svg>';
   /** 出撃するときに圧倒モードになるか */
   function owActive(stage, members, off) { return !off && GC.overwhelmOk(stage, members); }

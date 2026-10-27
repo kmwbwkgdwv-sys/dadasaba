@@ -406,7 +406,9 @@
   /** クリアしたときに、倒した数のコイン・ランダム設計図・ランダム装備を渡す */
   function giveStageDrops(stageNo, kills) {
     const row = dropRow(stageNo);
-    const coins = Math.max(0, kills | 0) * C.STAGE_DROPS.killCoin;
+    const killCoins = Math.max(0, kills | 0) * C.STAGE_DROPS.killCoin;
+    const clearCoins = row.coins | 0;   // v27：クリアボーナス
+    const coins = killCoins + clearCoins;
     save.coins += coins;
     const bp = addRandomBlueprints(row.bp);
     const er = C.STAGE_DROPS.essenceRand || 0;
@@ -417,7 +419,7 @@
       const item = NORMAL_ITEMS[Math.floor(rnd() * NORMAL_ITEMS.length)], rarity = pickWeighted(row.rates);
       items.push({ item, rarity, isNew: addItem(item, rarity) });
     }
-    return { coins, bp, bpTotal: row.bp, essence, items };
+    return { coins, killCoins, clearCoins, bp, bpTotal: row.bp, essence, items };
   }
   /** そのレアリティまでに得られる追加効果（下のレアリティの分も全部） */
   function rarityEffects(rarity) {

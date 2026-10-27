@@ -416,7 +416,7 @@
           else this.banner(`${e.id === this.selfId ? '' : e.name + ' が'}宝箱を開けた！\n${what}`, 2600, 'good');
           break;
         }
-        case 'bossWarp': this.banner(`${this._ow ? owMin() : Math.round(GC.MATCH_SECONDS / 60)}分経過！\n${e.sec || 5}秒後にボス戦の場所へワープ！`, 3200, 'warn low'); break;
+        case 'bossWarp': this.banner(`${this._ow ? owMin() : Math.round((GC.MATCH_REAL || GC.MATCH_SECONDS) / 60)}分経過！\n${e.sec || 5}秒後にボス戦の場所へワープ！`, 3200, 'warn low'); break;
         case 'boss': this.banner(`ボス戦！\nボス「${e.name}」出現！`, 3000, 'warn'); break;
         case 'warp': {
           // ボス戦の場所へワープ（自分の位置を合わせる）
@@ -683,7 +683,8 @@
       const dropHtml = dr ? `<div class="rs-drops">
           <div class="rs-drops-title">ステージクリア報酬</div>
           <div class="rs-drop-row">
-            <span class="rs-drop">${A.coin()}<b>+${fmt(dr.coins)}</b><small>撃破数×${C.STAGE_DROPS.killCoin}</small></span>
+            <span class="rs-drop">${A.coin()}<b>+${fmt(dr.killCoins != null ? dr.killCoins : dr.coins)}</b><small>撃破数×${C.STAGE_DROPS.killCoin}</small></span>
+            ${dr.clearCoins ? `<span class="rs-drop">${A.coin()}<b>+${fmt(dr.clearCoins)}</b><small>クリアボーナス</small></span>` : ''}
             ${dr.essence ? `<span class="rs-drop">${A.essence()}<b>+${fmt(dr.essence)}</b><small>エッセンス</small></span>` : ''}
             ${C.SLOTS.filter((sl) => dr.bp[sl.key]).map((sl) => `<span class="rs-drop">${A.blueprint(sl.key)}<b>×${dr.bp[sl.key]}</b><small>${sl.name}</small></span>`).join('')}
           </div>

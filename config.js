@@ -287,15 +287,16 @@ DS.config = {
   // コイン = 倒した敵の数 × killCoin、ランダム設計図（武器・防具・ベルト・靴のどれかになる）、ランダム装備
   // 先のステージほど、たくさん・いいレアリティの装備が出る（%）
   // essence：キャラのレベルアップに使うエッセンス（±essenceRand の幅でばらつく）
+  // v27：報酬を増やした（コイン：撃破数×1 → ×2 に、クリアボーナス coins を追加 / 設計図・エッセンス 2倍 / 装備 +1個）
   STAGE_DROPS: {
-    killCoin: 1,
+    killCoin: 2,
     essenceRand: 0.2,
     table: [
-      { upTo: 10, bp: 10, essence: 300,  items: 1, rates: { common: 80, uncommon: 20 } },
-      { upTo: 20, bp: 15, essence: 500,  items: 1, rates: { common: 55, uncommon: 35, rare: 10 } },
-      { upTo: 30, bp: 20, essence: 1000, items: 2, rates: { common: 35, uncommon: 40, rare: 22, epic: 3 } },
-      { upTo: 40, bp: 25, essence: 1500, items: 2, rates: { uncommon: 45, rare: 45, epic: 10 } },
-      { upTo: 50, bp: 30, essence: 2000, items: 3, rates: { uncommon: 30, rare: 52, epic: 18 } },
+      { upTo: 10, coins: 2000,  bp: 20, essence: 600,  items: 2, rates: { common: 80, uncommon: 20 } },
+      { upTo: 20, coins: 3000,  bp: 30, essence: 1000, items: 2, rates: { common: 55, uncommon: 35, rare: 10 } },
+      { upTo: 30, coins: 5000,  bp: 40, essence: 2000, items: 3, rates: { common: 35, uncommon: 40, rare: 22, epic: 3 } },
+      { upTo: 40, coins: 7000,  bp: 50, essence: 3000, items: 3, rates: { uncommon: 45, rare: 45, epic: 10 } },
+      { upTo: 50, coins: 10000, bp: 60, essence: 4000, items: 4, rates: { uncommon: 30, rare: 52, epic: 18 } },
     ],
   },
 
